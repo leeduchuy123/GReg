@@ -1,0 +1,23 @@
+# Tiny CPU smoke configuration for stage 2.
+inherits: hamnosys_greg.yaml
+output_dir: outputs/debug_greg
+device: cpu
+data:
+  cache: data/debug_cache
+model:
+  style_dim: 64
+  style_base: 16
+  flow:
+    dense_motion: {block_expansion: 16, num_blocks: 5, max_features: 64, scale_factor: 0.25}
+  rpg: {channels: [16, 32, 64, 64], share_hand_expert: true}
+  gr: {grm_levels: [32, 64, 128], base: 8, max_channels: 64}
+  generator: {base: 16, max_channels: 128, num_down: 4}
+  disc_base: 16
+train:
+  epochs: 1
+  batch_size: 2
+  num_workers: 0
+  vgg_pretrained: false
+  scales: [1.0]
+  log_every: 1
+  sample_every: 2

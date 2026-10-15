@@ -1,0 +1,10 @@
+models_smplx_v1_1/
+smplx_mano_flame_correspondences/
+data/
+outputs/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.pth
+*.pkl
+*.npz

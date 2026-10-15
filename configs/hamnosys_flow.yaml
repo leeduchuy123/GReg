@@ -1,0 +1,39 @@
+# Stage 1: TPSMM flow estimator on SMPL-X normal maps (HamNoSys subset).
+# Paper: ResNet-18 keypoint backbone, 50 keypoints = 10 TPS x 5, single occlusion mask.
+seed: 0
+device: auto
+output_dir: outputs/flow
+
+data:
+  cache: data/hamnosys_cache      # output of scripts/02_preprocess_hamnosys.py
+  pairs_per_clip: 1               # one random (source, driving) pair per clip per epoch
+  min_gap: 0
+
+model:
+  flow:
+    num_tps: 10
+    multi_mask: false
+    pretrained_backbone: false
+    dense_motion: {block_expansion: 64, num_blocks: 5, max_features: 1024, scale_factor: 0.25}
+  inpainting: {block_expansion: 64, max_features: 512, num_down_blocks: 3}
+
+train:
+  epochs: 100
+  batch_size: 8                   # PLACEHOLDER: fit to the GPU (3090 in the paper; 4-8 on a T4)
+  num_workers: 4
+  lr: 2.0e-4
+  weight_decay: 1.0e-4
+  milestones: [70, 90]
+  amp: false
+  vgg_pretrained: true
+  scales: [1.0, 0.5, 0.25, 0.125]
+  perceptual_weights: [10, 10, 10, 10, 10]
+  loss_weights: {equivariance: 10, warp: 10}
+  transform_params: {sigma_affine: 0.05, sigma_tps: 0.005, points_tps: 5}
+  dropout_epoch: 35
+  dropout_maxp: 0.7
+  dropout_startp: 0.0
+  dropout_inc_epoch: 10
+  log_every: 50
+  sample_every: 500
+  keep_epochs: [20, 40, 60, 80, 100]

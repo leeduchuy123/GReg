@@ -1,0 +1,53 @@
+# Stage 2: GReg on HamNoSys (flow estimator frozen).
+seed: 0
+device: auto
+output_dir: outputs/greg
+
+data:
+  cache: data/hamnosys_cache
+  pairs_per_clip: 1
+  min_gap: 0
+
+model:
+  image_size: 256
+  region_size: 64            # Hr = Wr (not given in the paper)
+  gaussian_sigma: 32.0       # sigma of Eq. 1 in pixels (not given in the paper)
+  style_dim: 256             # C_style (not given in the paper)
+  style_base: 32
+  detach_prior: true         # RE trained by L_struct only ("separately train RE")
+  freeze_flow: true
+  flow:                      # must match the stage-1 config
+    num_tps: 10
+    multi_mask: false
+    dense_motion: {block_expansion: 64, num_blocks: 5, max_features: 1024, scale_factor: 0.25}
+  rpg: {channels: [64, 128, 256, 256], share_hand_expert: true}
+  gr: {grm_levels: [32, 64, 128], base: 32, max_channels: 256, heads: 1, zero_init_out: true}
+  generator: {base: 64, max_channels: 512, num_down: 4, norm: batch}
+  disc_base: 64
+  disc_layers: 3
+  ablation: {no_rpg: false, no_gr: false}
+
+loss:
+  gan_type: bce              # paper's log-form GAN (non-saturating G); alternatives: hinge, lsgan
+  struct_target: gradient    # Table 2 variants: grayscale | rgb
+  region_perceptual_size: 128
+  weights:                   # PLACEHOLDER: the paper gives no lambda values
+    perceptual: 1.0          # VGG layers already weighted 10 each (TPSMM convention)
+    regional_perceptual: 1.0
+    struct: 10.0
+    adv: 1.0
+
+train:
+  epochs: 100
+  batch_size: 4              # PLACEHOLDER
+  num_workers: 4
+  lr: 2.0e-4
+  lr_d: 2.0e-4
+  milestones: [70, 90]
+  amp: false
+  vgg_pretrained: true
+  scales: [1.0, 0.5, 0.25, 0.125]
+  perceptual_weights: [10, 10, 10, 10, 10]
+  log_every: 50
+  sample_every: 500
+  keep_epochs: [20, 40, 60, 80, 100]

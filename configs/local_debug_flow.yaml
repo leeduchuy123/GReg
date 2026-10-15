@@ -1,0 +1,18 @@
+# Tiny CPU smoke configuration (shape checks / overfit on a handful of clips).
+inherits: hamnosys_flow.yaml
+output_dir: outputs/debug_flow
+device: cpu
+data:
+  cache: data/debug_cache
+model:
+  flow:
+    dense_motion: {block_expansion: 16, num_blocks: 5, max_features: 64, scale_factor: 0.25}
+  inpainting: {block_expansion: 16, max_features: 64, num_down_blocks: 3}
+train:
+  epochs: 1
+  batch_size: 2
+  num_workers: 0
+  vgg_pretrained: false
+  scales: [1.0]
+  log_every: 1
+  sample_every: 2

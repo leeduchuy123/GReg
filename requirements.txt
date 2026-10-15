@@ -1,0 +1,18 @@
+# Core (training / preprocessing / evaluation)
+torch>=2.2
+torchvision>=0.17
+numpy
+pillow
+pyyaml
+tqdm
+pandas
+smplx            # SMPL-X layer; the model files come from smpl-x.is.tue.mpg.de (registration)
+imageio-ffmpeg   # ffmpeg binary if the system has none (ffprobe is still recommended)
+lpips            # LPIPS metric (optional)
+pytest
+
+# Optional, faster rasterisation on GPU:
+# nvdiffrast  (pip install git+https://github.com/NVlabs/nvdiffrast)
+
+# AKD metric (HRNet-W32 COCO-WholeBody via MMPose), same pins as the PGMM repo:
+# openmim mmengine==0.10.7 mmcv-lite==2.1.0 mmdet==3.3.0 mmpose==1.1.0 xtcocotools

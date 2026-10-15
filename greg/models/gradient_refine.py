@@ -1,0 +1,80 @@
+"""Gradient-enhanced Refinement (Sec. 3.3): gradient encoder + GRM.
+
+GRM (Eq. 4)::
+
+    X_out = X_in + softmax(Q(X_g) K(X_in)^T / sqrt(C_in)) V(X_in)
+
+Q comes from the gradient feature X_g, K/V from the generator feature.  The
+attention is computed with ``F.scaled_dot_product_attention`` so the N x N
+matrix is never materialised explicitly on backends with fused kernels; GRMs
+are placed at low-resolution decoder levels (default 32, 64, 128).
+
+Decision: an output 1x1 projection initialised to zero is added after the
+attention so each GRM starts as the identity (standard practice for residual
+attention; set ``zero_init_out=False`` to disable).
+"""
+from __future__ import annotations
+
+from typing import Dict, Sequence
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class GradientEncoder(nn.Module):
+    """G_R (B, 3, H, W) -> pyramid of gradient features {res: (B, C_res, res, res)}."""
+
+    def __init__(self, in_channels: int = 3, base: int = 32, max_channels: int = 256,
+                 image_size: int = 256, levels: Sequence[int] = (128, 64, 32)):
+        super().__init__()
+        self.levels = sorted(set(levels), reverse=True)
+        self.stem = nn.Sequential(nn.Conv2d(in_channels, base, 7, padding=3), nn.LeakyReLU(0.2))
+        self.downs = nn.ModuleDict()
+        self.channels: Dict[int, int] = {}
+        ch, res = base, image_size
+        while res > min(self.levels):
+            nxt = min(ch * 2, max_channels)
+            self.downs[str(res // 2)] = nn.Sequential(nn.Conv2d(ch, nxt, 3, stride=2, padding=1), nn.LeakyReLU(0.2),
+                                                      nn.Conv2d(nxt, nxt, 3, padding=1), nn.LeakyReLU(0.2))
+            ch, res = nxt, res // 2
+            self.channels[res] = ch
+        self.image_size = image_size
+
+    def forward(self, g: torch.Tensor) -> Dict[int, torch.Tensor]:
+        h = self.stem(g)
+        feats = {}
+        res = self.image_size
+        while res > min(self.levels):
+            h = self.downs[str(res // 2)](h)
+            res //= 2
+            if res in self.levels:
+                feats[res] = h
+        return feats
+
+
+class GRM(nn.Module):
+    """Gradient-enhanced Refine Module: cross-attention with gradient-feature queries."""
+
+    def __init__(self, in_channels: int, grad_channels: int, heads: int = 1, zero_init_out: bool = True):
+        super().__init__()
+        assert in_channels % heads == 0
+        self.heads = heads
+        self.q = nn.Conv2d(grad_channels, in_channels, 1)
+        self.k = nn.Conv2d(in_channels, in_channels, 1)
+        self.v = nn.Conv2d(in_channels, in_channels, 1)
+        self.out = nn.Conv2d(in_channels, in_channels, 1)
+        if zero_init_out:
+            nn.init.zeros_(self.out.weight)
+            nn.init.zeros_(self.out.bias)
+
+    def forward(self, x: torch.Tensor, grad_feat: torch.Tensor) -> torch.Tensor:
+        B, C, H, W = x.shape
+        if grad_feat.shape[-2:] != (H, W):
+            grad_feat = F.interpolate(grad_feat, size=(H, W), mode="bilinear", align_corners=False)
+        q = self.q(grad_feat).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2)  # (B, h, N, d)
+        k = self.k(x).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2)
+        v = self.v(x).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2)
+        a = F.scaled_dot_product_attention(q, k, v)                                            # (B, h, N, d)
+        a = a.transpose(-1, -2).reshape(B, C, H, W)
+        return x + self.out(a)
