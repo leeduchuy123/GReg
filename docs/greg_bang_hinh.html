@@ -1,0 +1,1244 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GReg bằng hình vẽ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column (68ch) with figures that break out to 1180px; the pipeline figure is the centrepiece.
+   Colour encodes data type everywhere: amber = photo, periwinkle = normal map, teal = edges, slate = motion/mask. */
+:root{
+  --paper:#F2F3F7; --surface:#FFFFFF; --ink:#141824; --ink-2:#4A5166; --ink-3:#767D93; --line:#D7DAE4;
+  --accent:#5658D2; --accent-soft:#E7E7FB;
+  --c-img:#BF6A12; --c-norm:#5658D2; --c-edge:#0B8A82; --c-motion:#687086; --c-mix:#4A5166;
+  --c-face:#D3437A; --c-lh:#2C82C6; --c-rh:#36954A;
+  --good:#2E9C69; --bad:#CF513D;
+  --frame:#0D0F15;
+  --f-display:'Bricolage Grotesque','Be Vietnam Pro',system-ui,sans-serif;
+  --f-body:'Be Vietnam Pro',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --f-mono:'JetBrains Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --paper:#0E1117; --surface:#161A23; --ink:#E7E9F0; --ink-2:#A9AFC0; --ink-3:#7D8498; --line:#2A303E;
+    --accent:#9294F6; --accent-soft:#25274D;
+    --c-img:#E59846; --c-norm:#9294F6; --c-edge:#3DC3B8; --c-motion:#9CA2B5; --c-mix:#A9AFC0;
+    --c-face:#F06F9E; --c-lh:#5DAEEC; --c-rh:#63C476;
+    --good:#4CC28C; --bad:#F07A64;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --paper:#0E1117; --surface:#161A23; --ink:#E7E9F0; --ink-2:#A9AFC0; --ink-3:#7D8498; --line:#2A303E;
+  --accent:#9294F6; --accent-soft:#25274D;
+  --c-img:#E59846; --c-norm:#9294F6; --c-edge:#3DC3B8; --c-motion:#9CA2B5; --c-mix:#A9AFC0;
+  --c-face:#F06F9E; --c-lh:#5DAEEC; --c-rh:#63C476;
+  --good:#4CC28C; --bad:#F07A64;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--f-body); font-size:17px; line-height:1.72; -webkit-font-smoothing:antialiased;
+  padding-left:max(16px,env(safe-area-inset-left,0px)); padding-right:max(16px,env(safe-area-inset-right,0px));
+}
+.wrap{max-width:1180px; margin:0 auto; padding-block:36px 72px}
+h1,h2,h3{font-family:var(--f-display); text-wrap:balance; margin:0; line-height:1.12; color:var(--ink)}
+h2{font-size:clamp(28px,3.6vw,40px); font-weight:800; letter-spacing:-.015em}
+h3{font-size:23px; font-weight:600; letter-spacing:-.005em}
+p{margin:0}
+.prose{max-width:68ch; display:flex; flex-direction:column; gap:14px}
+.eyebrow{font-family:var(--f-mono); font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3)}
+.mono{font-family:var(--f-mono); font-size:13px; font-variant-numeric:tabular-nums}
+sub{font-size:.72em; line-height:0}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+
+section{border-top:1px solid var(--line); padding-block:56px; display:flex; flex-direction:column; gap:22px}
+.sub{display:flex; flex-direction:column; gap:18px; padding-top:22px}
+.sub + .sub{border-top:1px dashed var(--line); margin-top:18px; padding-top:40px}
+
+figure{margin:0; display:flex; flex-direction:column; gap:12px}
+figcaption{font-size:14.5px; color:var(--ink-2); line-height:1.6; max-width:76ch}
+canvas.pic{display:block; width:100%; height:auto; aspect-ratio:1; background:var(--frame); border-radius:6px; border:1px solid var(--line)}
+.lbl{font-size:13.5px; color:var(--ink-2); line-height:1.4}
+.lbl b{color:var(--ink); font-weight:600}
+.note{font-size:14px; color:var(--ink-3); border-left:2px solid var(--line); padding-left:12px; max-width:68ch}
+
+.btn{font:inherit; font-size:14.5px; font-weight:500; color:var(--ink); background:var(--surface); border:1px solid var(--line);
+  border-radius:7px; padding:7px 14px; cursor:pointer; line-height:1.3}
+.btn:hover{border-color:var(--ink-3)}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--surface); font-weight:600; min-width:104px}
+.btn.small{font-size:13px; padding:4px 10px}
+
+/* ---------- hero ---------- */
+.hero{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.05fr); gap:44px; align-items:center; padding-block:12px 48px}
+.hero-text{display:flex; flex-direction:column; gap:16px}
+.hero h1{font-size:clamp(76px,12vw,140px); font-weight:800; letter-spacing:-.045em; line-height:.9}
+.hero h1 .r{color:var(--accent)}
+.expand{font-family:var(--f-mono); font-size:14px; color:var(--ink-2); letter-spacing:.01em}
+.expand b{color:var(--accent); font-weight:500}
+.lede{font-size:20px; line-height:1.6; max-width:34ch}
+.trio{display:grid; grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr) 22px minmax(0,1fr); gap:8px; align-items:center}
+.tile{display:flex; flex-direction:column; gap:6px}
+.arr{width:22px; height:12px; color:var(--ink-3)}
+.hero-meta{display:flex; gap:12px; align-items:center; flex-wrap:wrap}
+.toc{display:flex; flex-wrap:wrap; gap:8px 18px; padding-block:14px; border-top:1px solid var(--line); font-size:14.5px}
+.toc a{color:var(--ink-2); text-decoration:none}
+.toc a:hover{color:var(--accent)}
+
+/* ---------- grids of pictures ---------- */
+.row{display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.row.three{grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); max-width:760px}
+.cell{display:flex; flex-direction:column; gap:7px}
+
+/* ---------- sphere ---------- */
+.sphere-wrap{display:grid; grid-template-columns:260px minmax(0,1fr); gap:28px; align-items:center}
+#sphere{width:260px; height:260px; cursor:crosshair; touch-action:none; border-radius:50%}
+.readout{display:grid; grid-template-columns:auto 1fr; gap:6px 18px; font-size:15px; max-width:340px}
+.readout dt{color:var(--ink-2)}
+.readout dd{margin:0; font-family:var(--f-mono); font-size:14px; font-variant-numeric:tabular-nums}
+.swatch{width:56px; height:56px; border-radius:8px; border:1px solid var(--line)}
+.formula{font-family:var(--f-mono); font-size:15px; background:var(--surface); border:1px solid var(--line); border-radius:8px;
+  padding:12px 16px; overflow-x:auto; white-space:nowrap; max-width:100%}
+
+/* ---------- pipeline ---------- */
+.flow-ctrl{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
+.status{font-size:14.5px; color:var(--ink-2); margin-left:4px}
+.status b{color:var(--ink)}
+.flowfig{background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow-x:auto}
+#flow{display:block; width:100%; min-width:900px; height:auto; padding:6px}
+#flow text{fill:var(--ink); font-family:var(--f-body)}
+#flow .t-name{font-size:12.5px; font-weight:600}
+#flow .t-sym{font-size:11px; fill:var(--ink-3); font-family:var(--f-mono)}
+#flow .node, #flow .wire{transition:opacity .35s ease}
+#flow.focus .node:not(.on){opacity:.32}
+#flow.focus .wire:not(.on){opacity:.12}
+#flow .box{fill:var(--surface); stroke:var(--line); stroke-width:1.2}
+#flow .node.on .box{stroke:var(--accent); stroke-width:2}
+#flow .thumbframe{fill:none; stroke:var(--line); stroke-width:1}
+#flow .node.on .thumbframe{stroke:var(--accent); stroke-width:2}
+#flow .halo{fill:none; stroke:var(--surface); stroke-width:7}
+#flow .line{fill:none; stroke-width:2}
+#flow .wire.on .line{stroke-width:2.6}
+#flow .bar{fill:var(--ink-3); opacity:.45}
+#flow .grm{fill:var(--c-edge)}
+#flow .genbox{fill:var(--paper); stroke:var(--line); stroke-width:1.2}
+#flow .node.on .genbox{stroke:var(--accent); stroke-width:2}
+.legend{display:flex; flex-wrap:wrap; gap:8px 20px; list-style:none; margin:0; padding:0; font-size:14px; color:var(--ink-2)}
+.legend li{display:flex; align-items:center; gap:8px}
+.legend i{width:22px; height:4px; border-radius:2px; display:inline-block}
+.steps{list-style:none; margin:0; padding:0; display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(258px,1fr))}
+.steps button{all:unset; box-sizing:border-box; display:flex; flex-direction:column; gap:6px; width:100%; height:100%; cursor:pointer;
+  background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; font-size:15px; line-height:1.6; color:var(--ink-2)}
+.steps button:hover{border-color:var(--ink-3)}
+.steps button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.steps .num{font-family:var(--f-mono); font-size:12px; color:var(--ink-3); letter-spacing:.06em}
+.steps .st{font-family:var(--f-display); font-weight:600; font-size:18px; color:var(--ink); line-height:1.25}
+.steps button[aria-current="step"]{border-color:var(--accent); background:var(--accent-soft)}
+.steps button[aria-current="step"] .num{color:var(--accent)}
+
+/* ---------- RPG figure ---------- */
+.rpg-scroll{overflow-x:auto}
+.rpg{display:grid; grid-template-columns:210px 22px 112px 22px 190px 22px 112px 22px 210px; gap:10px; align-items:center; min-width:960px}
+.rcol{display:flex; flex-direction:column; gap:8px; border-radius:10px; padding:8px; border:1px solid transparent}
+.stack3{display:flex; flex-direction:column; gap:8px}
+.tag{font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:6px}
+.tag i{width:9px; height:9px; border-radius:2px; display:inline-block}
+.expert{background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:10px 12px; display:flex; flex-direction:column; gap:2px}
+.expert b{font-family:var(--f-display); font-weight:600; font-size:15.5px}
+.expert span{font-size:12.5px; color:var(--ink-3)}
+.style-in{display:grid; grid-template-columns:62px 1fr; gap:8px; align-items:center}
+@keyframes pulse{0%,100%{border-color:transparent; background:transparent}12%,30%{border-color:var(--accent); background:var(--accent-soft)}}
+.rpg.anim .rcol{animation:pulse 6s infinite}
+.rpg.anim .rcol[data-k="1"]{animation-delay:1s}
+.rpg.anim .rcol[data-k="2"]{animation-delay:2s}
+.rpg.anim .rcol[data-k="3"]{animation-delay:3s}
+.rpg.anim .rcol[data-k="4"]{animation-delay:4s}
+.answer{display:grid; grid-template-columns:auto repeat(3,96px); gap:12px; align-items:center; background:var(--surface);
+  border:1px dashed var(--line); border-radius:10px; padding:12px 14px; max-width:620px}
+.answer p{font-size:14.5px; color:var(--ink-2); max-width:24ch}
+
+/* ---------- sliders ---------- */
+.control{display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; font-size:15px}
+input[type=range]{accent-color:var(--accent); width:min(320px,100%)}
+
+/* ---------- GRM ---------- */
+.grm-demo{display:grid; grid-template-columns:repeat(2,minmax(0,300px)); gap:18px}
+#grm-q{cursor:pointer; touch-action:none}
+.qkv{display:flex; flex-wrap:wrap; gap:10px 22px; font-size:14.5px; color:var(--ink-2)}
+.qkv span b{font-family:var(--f-mono); color:var(--ink)}
+
+/* ---------- blend equation ---------- */
+.eq{display:flex; flex-wrap:wrap; align-items:center; gap:10px}
+.eq .cell{width:132px}
+.op{font-family:var(--f-display); font-size:26px; color:var(--ink-3); padding-bottom:26px}
+
+/* ---------- training ---------- */
+.table-wrap{overflow-x:auto; max-width:100%}
+table{border-collapse:collapse; font-size:15px; min-width:640px; width:100%}
+th,td{text-align:left; vertical-align:top; padding:10px 14px; border-bottom:1px solid var(--line)}
+th{font-size:12.5px; font-family:var(--f-mono); letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); font-weight:500}
+td.sym{font-family:var(--f-mono); white-space:nowrap; color:var(--accent)}
+.judge{display:flex; flex-direction:column; gap:14px}
+.jrow{display:grid; grid-template-columns:78px 78px 22px 128px 22px 132px 1fr; gap:10px; align-items:center}
+.jbox{background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:8px 10px; font-size:13px; line-height:1.35}
+.jbox b{font-family:var(--f-display); font-weight:600; font-size:14px; display:block}
+.patch{display:grid; grid-template-columns:repeat(6,1fr); gap:2px; width:132px}
+.patch span{aspect-ratio:1; border-radius:2px; background:color-mix(in oklab, var(--good) calc(var(--v,.5)*100%), var(--bad))}
+.jverdict{font-size:14px; color:var(--ink-2)}
+.jverdict b{font-variant-numeric:tabular-nums; color:var(--ink)}
+.judge-scroll{overflow-x:auto}
+.judge-inner{min-width:640px; display:flex; flex-direction:column; gap:12px}
+.specs{display:grid; grid-template-columns:max-content 1fr; gap:8px 22px; font-size:15px; max-width:760px; margin:0}
+.specs dt{color:var(--ink-3)}
+.specs dd{margin:0}
+
+/* ---------- charts ---------- */
+.charts{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:32px}
+.chart{display:flex; flex-direction:column; gap:10px}
+.chart h3{font-size:18px}
+.brow{display:grid; grid-template-columns:150px 1fr 54px; gap:10px; align-items:center; font-size:14.5px}
+.track{height:16px; background:var(--accent-soft); border-radius:3px; position:relative; overflow:hidden}
+.fill{position:absolute; inset:0 auto 0 0; background:var(--ink-3); border-radius:3px}
+.fill.hi{background:var(--accent)}
+.bv{font-family:var(--f-mono); font-size:13.5px; text-align:right; font-variant-numeric:tabular-nums}
+.axis{display:grid; grid-template-columns:150px 1fr 54px; gap:10px; font-family:var(--f-mono); font-size:11.5px; color:var(--ink-3)}
+.axis .ticks{display:flex; justify-content:space-between}
+
+ul.gaps{margin:0; padding-left:20px; display:flex; flex-direction:column; gap:6px; max-width:68ch}
+footer{border-top:1px solid var(--line); padding-top:24px; font-size:14px; color:var(--ink-3); max-width:80ch}
+
+@media (max-width:860px){
+  .hero{grid-template-columns:1fr; gap:28px}
+  .sphere-wrap{grid-template-columns:1fr}
+  .grm-demo{grid-template-columns:1fr 1fr}
+  .brow,.axis{grid-template-columns:118px 1fr 50px}
+}
+@media (max-width:480px){
+  body{font-size:16px}
+  .lede{font-size:18px}
+  .grm-demo{grid-template-columns:1fr}
+  .answer{grid-template-columns:repeat(3,1fr)}
+  .answer p{grid-column:1 / -1; max-width:none}
+}
+@media (prefers-reduced-motion: reduce){
+  *{animation:none !important; transition:none !important}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="hero-text">
+    <span class="eyebrow">Giải thích bằng hình · ICCV 2025</span>
+    <h1>G<span class="r">Reg</span></h1>
+    <span class="expand"><b>G</b>eometry-aware <b>Reg</b>ion refinement · tinh chỉnh từng vùng nhờ hình khối 3D</span>
+    <p class="lede">GReg nhận một tấm ảnh của một người và một chuỗi tư thế 3D. Nó vẽ ra video người đó đang ra ký hiệu theo đúng chuỗi tư thế ấy.</p>
+    <p>Phần khó nhất là bàn tay và khuôn mặt. Chúng nhỏ, nhiều chi tiết, và mang phần lớn ý nghĩa của câu ký hiệu. Cả mô hình được thiết kế xoay quanh việc vẽ đúng hai vùng này.</p>
+    <p class="note">Mọi hình người trên trang là một mô hình đơn giản được vẽ bằng code ngay trong trình duyệt để minh hoạ. Chúng không phải ảnh từ bộ dữ liệu.</p>
+  </div>
+  <figure>
+    <div class="trio">
+      <div class="tile"><canvas id="h-src" class="pic" width="150" height="150" aria-label="Ảnh nguồn"></canvas><span class="lbl"><b>Ảnh nguồn</b><br>một tấm duy nhất</span></div>
+      <svg class="arr" viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      <div class="tile"><canvas id="h-norm" class="pic" width="150" height="150" aria-label="Chuỗi tư thế 3D"></canvas><span class="lbl"><b>Chuỗi tư thế</b><br>dựng từ SMPL-X</span></div>
+      <svg class="arr" viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      <div class="tile"><canvas id="h-vid" class="pic" width="150" height="150" aria-label="Video tạo ra"></canvas><span class="lbl"><b>Video tạo ra</b><br>người thật, tư thế mới</span></div>
+    </div>
+    <div class="hero-meta">
+      <button id="h-pause" class="btn small" type="button">Tạm dừng</button>
+      <span id="h-frame" class="mono">khung 01 / 24</span>
+    </div>
+    <figcaption>Bên trái là ảnh duy nhất GReg được xem. Ở giữa là chuỗi tư thế, vẽ thành bản đồ hướng mặt. Bên phải là video GReg cần tạo ra, khung nào cũng phải giữ đúng gương mặt và quần áo của người trong ảnh nguồn.</figcaption>
+  </figure>
+</header>
+
+<nav class="toc" aria-label="Mục lục">
+  <a href="#bai-toan">Vì sao cần 3D</a>
+  <a href="#ban-do">Hai tấm bản đồ</a>
+  <a href="#luong">Luồng chạy</a>
+  <a href="#tung-phan">Từng phần</a>
+  <a href="#hoc">Cách GReg học</a>
+  <a href="#ket-qua">Kết quả</a>
+  <a href="#ky-hieu">Ký hiệu</a>
+  <a href="#bo-trong">Bài báo bỏ trống gì</a>
+</nav>
+
+<!-- ======================================================= 1 -->
+<section id="bai-toan">
+  <span class="eyebrow">Mục 1 và 2 trong bài báo</span>
+  <h2>Vì sao cần hình khối 3D</h2>
+  <div class="prose">
+    <p>Trong ngôn ngữ ký hiệu, cùng một vị trí tay nhưng khác số ngón duỗi ra là khác nghĩa. Video tạo ra mà ngón tay dính vào nhau hoặc mặt bị nhoè thì người xem hiểu sai.</p>
+    <p>Các phương pháp trước mô tả tư thế bằng bộ xương que hoặc bằng các đốm sáng đặt ở khớp. Hai cách này chỉ cho biết khớp nằm ở đâu. Chúng không cho biết bàn tay dày hay mỏng, ngón nào nằm trước ngón nào.</p>
+    <p>GReg dùng SMPL-X, một mô hình người 3D có sẵn. Mỗi khung hình chỉ cần khoảng 180 con số mô tả tư thế, hình dáng và nét mặt. Từ đó SMPL-X dựng ra cả cơ thể với 10.475 điểm, gồm đủ năm ngón tay.</p>
+  </div>
+  <figure>
+    <div class="row three">
+      <div class="cell"><canvas id="cmp-skel" class="pic" width="220" height="220"></canvas><span class="lbl"><b>Bộ xương que</b><br>biết khớp ở đâu, không biết độ dày</span></div>
+      <div class="cell"><canvas id="cmp-heat" class="pic" width="220" height="220"></canvas><span class="lbl"><b>Đốm sáng ở khớp</b><br>mờ, các ngón hoà vào nhau</span></div>
+      <div class="cell"><canvas id="cmp-norm" class="pic" width="220" height="220"></canvas><span class="lbl"><b>SMPL-X</b><br>có hình khối, ngón trước che ngón sau</span></div>
+    </div>
+    <figcaption>Cùng một bàn tay đang giơ lên, ba cách mô tả. Chỉ cách thứ ba cho mô hình biết hình dạng thật của bàn tay.</figcaption>
+  </figure>
+</section>
+
+<!-- ======================================================= 2 -->
+<section id="ban-do">
+  <span class="eyebrow">Mục 2.1 và 3.3 · Công thức 2</span>
+  <h2>Hai tấm bản đồ GReg đọc</h2>
+
+  <div class="sub">
+    <h3>Bản đồ hướng mặt</h3>
+    <div class="prose">
+      <p>Mỗi điểm trên bề mặt cơ thể quay về một hướng. Bản đồ hướng mặt, tiếng Anh là normal map, tô màu từng điểm theo hướng đó. Quay sang phải thì đỏ hơn. Quay lên trên thì xanh lá hơn. Quay thẳng về phía bạn thì tím xanh.</p>
+      <p>Rê chuột hoặc chạm vào quả cầu để xem màu của từng hướng. Bạn cũng có thể bấm vào quả cầu rồi dùng phím mũi tên.</p>
+    </div>
+    <div class="sphere-wrap">
+      <canvas id="sphere" width="260" height="260" tabindex="0" aria-label="Quả cầu tô màu theo hướng mặt. Dùng phím mũi tên để di chuyển điểm chọn."></canvas>
+      <div class="stack3">
+        <div class="swatch" id="sw"></div>
+        <dl class="readout">
+          <dt>Sang phải</dt><dd id="r-x">0.00</dd>
+          <dt>Lên trên</dt><dd id="r-y">0.00</dd>
+          <dt>Về phía bạn</dt><dd id="r-z">0.00</dd>
+          <dt>Màu (R, G, B)</dt><dd id="r-c">0, 0, 0</dd>
+        </dl>
+        <p class="lbl">Mỗi kênh màu bằng hướng tương ứng cộng 1, chia 2, nhân 255.</p>
+      </div>
+    </div>
+    <p class="prose">Vì bản đồ này được vẽ ra từ mô hình 3D, nó luôn có đúng hình khối. Ngón tay nằm trước che ngón nằm sau, giống hệt ngoài đời.</p>
+  </div>
+
+  <div class="sub">
+    <h3>Bản đồ đường viền</h3>
+    <div class="prose">
+      <p>Đường viền là chỗ màu thay đổi đột ngột. GReg tính nó rất đơn giản. Đầu tiên đổi bản đồ hướng mặt sang ảnh xám. Sau đó ở mỗi điểm, lấy độ sáng trừ đi độ sáng của điểm bên trái, rồi trừ đi độ sáng của điểm bên trên. Hai hiệu này càng lớn thì điểm đó càng nằm trên đường viền.</p>
+    </div>
+    <div class="formula">G = √( I<sub>x</sub>² + I<sub>y</sub>² + ε )     với ε = 10⁻⁶ để tránh căn của 0</div>
+    <figure>
+      <div class="row three">
+        <div class="cell"><canvas class="pic" data-src="Nt" width="240" height="240"></canvas><span class="lbl"><b>Bản đồ hướng mặt</b></span></div>
+        <div class="cell"><canvas class="pic" data-src="gray" width="240" height="240"></canvas><span class="lbl"><b>Đổi sang ảnh xám</b></span></div>
+        <div class="cell"><canvas class="pic" data-src="edge" width="240" height="240"></canvas><span class="lbl"><b>Đường viền</b></span></div>
+      </div>
+      <figcaption>Đường viền làm nổi rõ từng ngón tay và đường nét khuôn mặt. Đây là tín hiệu GReg dùng để biết chỗ nào phải vẽ thật sắc.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ======================================================= 3 -->
+<section id="luong">
+  <span class="eyebrow">Hình 3 trong bài báo</span>
+  <h2>Luồng chạy từ đầu đến cuối</h2>
+  <div class="prose">
+    <p>Bấm <b>Chạy</b> để xem dữ liệu đi qua từng bước. Mỗi chấm sáng là một gói dữ liệu đang được chuyển đi. Màu của chấm cho biết đó là loại dữ liệu gì. Bấm vào một thẻ bên dưới hình để dừng ở bước đó.</p>
+  </div>
+  <div class="flow-ctrl">
+    <button id="fl-prev" class="btn" type="button">Bước trước</button>
+    <button id="fl-play" class="btn primary" type="button">Chạy</button>
+    <button id="fl-next" class="btn" type="button">Bước sau</button>
+    <button id="fl-all" class="btn" type="button">Xem toàn cảnh</button>
+    <span id="fl-status" class="status" aria-live="polite">Đang xem <b>toàn cảnh</b></span>
+  </div>
+  <div class="flowfig">
+    <svg id="flow" viewBox="0 0 1180 600" role="img" aria-label="Sơ đồ luồng chạy của GReg: ảnh nguồn và hai bản đồ hướng mặt đi qua bước đoán chuyển động, kéo ảnh, chuyên gia vùng và lấy đường viền, rồi vào bộ vẽ ảnh có ba khối GRM, cuối cùng trộn bằng mặt nạ để ra khung hình kết quả."></svg>
+  </div>
+  <ul class="legend">
+    <li><i style="background:var(--c-img)"></i>Ảnh màu</li>
+    <li><i style="background:var(--c-norm)"></i>Bản đồ hướng mặt</li>
+    <li><i style="background:var(--c-edge)"></i>Đường viền và khung gợi ý</li>
+    <li><i style="background:var(--c-motion)"></i>Chuyển động và mặt nạ</li>
+    <li><i style="background:var(--c-edge); width:10px; height:14px"></i>Khối GRM trong bộ vẽ ảnh</li>
+  </ul>
+  <ol class="steps" id="steps">
+    <li><button type="button" data-step="0"><span class="num">BƯỚC 1</span><span class="st">Đầu vào</span>Có ba thứ đi vào. Ảnh nguồn là ảnh thật của người cần vẽ, ở một tư thế bất kỳ. Hai bản đồ hướng mặt là tư thế trong ảnh nguồn và tư thế mới cần vẽ.</button></li>
+    <li><button type="button" data-step="1"><span class="num">BƯỚC 2</span><span class="st">Đoán chuyển động</span>So hai bản đồ hướng mặt, GReg đoán mỗi điểm trên người đã đi từ đâu tới đâu. Kết quả là bản đồ luồng F. Nó cũng đoán mặt nạ O, cho biết chỗ nào của ảnh cũ còn dùng được, chỗ nào bị che và phải vẽ mới.</button></li>
+    <li><button type="button" data-step="2"><span class="num">BƯỚC 3</span><span class="st">Kéo ảnh nguồn</span>Theo bản đồ luồng, GReg kéo từng điểm ảnh của ảnh nguồn về vị trí mới. Ảnh đã kéo giữ đúng màu da, màu áo của người thật. Nhưng nó sai ở những chỗ khó, nhất là bàn tay.</button></li>
+    <li><button type="button" data-step="3"><span class="num">BƯỚC 4</span><span class="st">Chuyên gia vùng</span>GReg cắt ba vùng mặt, tay trái, tay phải từ bản đồ hướng mặt mới. Mỗi vùng đi qua một mạng nhỏ chuyên vẽ vùng đó, kèm một mã tóm tắt ngoại hình lấy từ ảnh nguồn. Kết quả được dán lại đúng chỗ trên ba tấm nền đen, gọi là khung gợi ý R.</button></li>
+    <li><button type="button" data-step="4"><span class="num">BƯỚC 5</span><span class="st">Lấy đường viền</span>GReg tính đường viền của bản đồ hướng mặt mới, rồi chỉ giữ lại phần quanh mặt và hai tay. Phần này được nén thành đặc trưng X<sub>g</sub> và gửi tới ba khối GRM trong bộ vẽ ảnh.</button></li>
+    <li><button type="button" data-step="5"><span class="num">BƯỚC 6</span><span class="st">Vẽ ảnh</span>Bộ vẽ ảnh nhận ảnh đã kéo, bản đồ hướng mặt mới và khung gợi ý R, xếp chồng lên nhau. Nó nén thông tin nhỏ dần rồi mở rộng ra lại. Trên đường mở rộng, ba khối GRM dùng đường viền để làm sắc mặt và tay.</button></li>
+    <li><button type="button" data-step="6"><span class="num">BƯỚC 7</span><span class="st">Trộn</span>Chỗ nào mặt nạ O nói ảnh cũ còn dùng được, GReg giữ ảnh đã kéo. Chỗ nào bị che, GReg dùng ảnh vừa vẽ. Ghép lại được một khung hình. Làm lại cho mọi tư thế trong chuỗi là có video.</button></li>
+  </ol>
+  <p class="note">Bước 2, 4 và 5 không cần chờ nhau. Bước 3 cần kết quả của bước 2. Bước 6 cần kết quả của bước 3, 4 và 5.</p>
+</section>
+
+<!-- ======================================================= 4 -->
+<section id="tung-phan">
+  <span class="eyebrow">Mục 3 trong bài báo</span>
+  <h2>Nhìn kỹ từng phần</h2>
+
+  <div class="sub">
+    <span class="eyebrow">Mục 3.1 và 4.1</span>
+    <h3>Đoán chuyển động rồi kéo ảnh</h3>
+    <div class="prose">
+      <p>Phần này dùng lại một mô hình có sẵn tên là TPSMM. Nó đặt 50 điểm mốc lên mỗi bản đồ hướng mặt, chia thành 10 nhóm, mỗi nhóm 5 điểm. Mỗi nhóm mô tả một kiểu uốn cong ảnh. Trộn 10 kiểu uốn lại được bản đồ luồng cho toàn ảnh.</p>
+      <p>Kiểu uốn này trơn và mềm. Nó di chuyển tốt những mảng lớn như thân áo, cánh tay, nhưng không theo kịp từng ngón tay. Vì vậy ảnh đã kéo thường sai ở bàn tay, và các phần sau của GReg phải sửa lại.</p>
+    </div>
+    <figure>
+      <div class="row">
+        <div class="cell"><canvas class="pic" data-src="Ns" width="240" height="240"></canvas><span class="lbl"><b>Tư thế cũ N<sub>s</sub></b></span></div>
+        <div class="cell"><canvas class="pic" data-src="Nt" width="240" height="240"></canvas><span class="lbl"><b>Tư thế mới N<sub>t</sub></b></span></div>
+        <div class="cell"><canvas class="pic" data-src="F" width="480" height="480"></canvas><span class="lbl"><b>Luồng F</b><br>mũi tên chỉ chỗ lấy màu trong ảnh nguồn</span></div>
+        <div class="cell"><canvas class="pic" data-src="O" width="240" height="240"></canvas><span class="lbl"><b>Mặt nạ O</b><br>trắng: dùng ảnh cũ · đen: vẽ mới</span></div>
+        <div class="cell"><canvas class="pic" data-src="Ist" width="240" height="240"></canvas><span class="lbl"><b>Ảnh đã kéo I<sub>s→t</sub></b><br>thân đúng, bàn tay méo</span></div>
+      </div>
+      <figcaption>Luồng ở đây được tính rồi làm mờ đi để giống tính chất trơn của TPSMM. Nhờ vậy bạn thấy được vì sao bàn tay trong ảnh đã kéo bị méo, còn mặt nạ thì đen ở quanh bàn tay.</figcaption>
+    </figure>
+  </div>
+
+  <div class="sub">
+    <span class="eyebrow">Mục 3.2 · Hình 4 · Công thức 8</span>
+    <h3>Chuyên gia vùng vẽ khung gợi ý</h3>
+    <div class="prose">
+      <p>Mặt và hai bàn tay chỉ chiếm một phần nhỏ của khung hình. Một bộ vẽ chung cho cả người dễ bỏ qua chúng. GReg giao mỗi vùng cho một mạng riêng, gọi là chuyên gia vùng. Mặt có một chuyên gia. Hai bàn tay dùng chung một chuyên gia.</p>
+      <p>Mỗi chuyên gia là một mạng U-Net nhỏ. Nó nhận vùng cắt từ bản đồ hướng mặt và mã phong cách lấy từ ảnh nguồn. Mã phong cách chỉnh độ mạnh yếu của từng bộ lọc trong mạng, theo cách làm của StyleGAN2. Nhờ đó cùng một bàn tay 3D nhưng nét vẽ hợp với người trong ảnh.</p>
+      <p>Khi train, đầu ra của chuyên gia được so với đường viền của đúng vùng đó trong ảnh thật. Phép so này là hàm mất mát L<sub>struct</sub>.</p>
+    </div>
+    <figure>
+      <div class="rpg-scroll">
+        <div class="rpg" id="rpg">
+          <div class="rcol" data-k="0"><canvas id="rpg-nt" class="pic" width="240" height="240"></canvas><span class="lbl"><b>Tư thế mới N<sub>t</sub></b><br>đánh dấu ba vùng</span></div>
+          <svg class="arr" viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          <div class="rcol" data-k="1">
+            <div class="stack3" id="rpg-crops"></div>
+            <span class="lbl"><b>Cắt ra</b></span>
+          </div>
+          <svg class="arr" viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          <div class="rcol" data-k="2">
+            <div class="expert"><b>Chuyên gia mặt</b><span>U-Net + bộ lọc chỉnh theo phong cách</span></div>
+            <div class="expert"><b>Chuyên gia tay</b><span>dùng chung cho cả hai tay</span></div>
+            <div class="style-in"><canvas class="pic" data-src="Is" width="120" height="120"></canvas><canvas id="rpg-style" width="240" height="120" style="width:100%;height:auto;border-radius:6px;border:1px solid var(--line);background:var(--frame)"></canvas></div>
+            <span class="lbl">Ảnh nguồn được tóm thành <b>mã phong cách</b> X<sub>style</sub>, đưa vào cả hai chuyên gia</span>
+          </div>
+          <svg class="arr" viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          <div class="rcol" data-k="3">
+            <div class="stack3" id="rpg-priors"></div>
+            <span class="lbl"><b>Đường viền dự kiến</b></span>
+          </div>
+          <svg class="arr" viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          <div class="rcol" data-k="4"><canvas class="pic" data-src="R" width="240" height="240"></canvas><span class="lbl"><b>Khung gợi ý R</b><br>dán lại đúng chỗ cũ trên nền đen</span></div>
+        </div>
+      </div>
+      <div class="answer">
+        <p><b>Đáp án để học.</b> Đường viền của ba vùng trong ảnh thật. L<sub>struct</sub> đo khoảng cách giữa đáp án và đường viền dự kiến.</p>
+        <canvas id="rpg-t0" class="pic" width="96" height="96"></canvas>
+        <canvas id="rpg-t1" class="pic" width="96" height="96"></canvas>
+        <canvas id="rpg-t2" class="pic" width="96" height="96"></canvas>
+      </div>
+      <figcaption>Màu hồng là mặt, xanh dương là tay trái, xanh lá là tay phải. Thanh màu bên dưới ảnh nguồn chỉ minh hoạ ý tưởng một mã tóm tắt màu da, màu áo, màu tóc. Mã thật là một dãy 256 hoặc nhiều số hơn do mạng tự học.</figcaption>
+    </figure>
+  </div>
+
+  <div class="sub">
+    <span class="eyebrow">Mục 3.3 · Công thức 1 và 3</span>
+    <h3>Chỉ giữ đường viền quanh mặt và tay</h3>
+    <div class="prose">
+      <p>GReg đặt ba quả chuông ánh sáng lên ảnh, một ở giữa mặt, hai ở giữa hai bàn tay. Tâm quả chuông sáng nhất, càng ra xa càng tối dần. Nhân đường viền với ba quả chuông, ta được ba tấm đường viền, mỗi tấm chỉ còn rõ ở một vùng.</p>
+      <p>Con số σ quyết định quả chuông rộng hay hẹp. Bài báo không cho giá trị σ. Kéo thanh trượt để xem σ thay đổi kết quả thế nào.</p>
+    </div>
+    <div class="control">
+      <label for="sigma">Độ rộng quả chuông σ</label>
+      <input id="sigma" type="range" min="8" max="72" step="2" value="32">
+      <span class="mono" id="sigma-v">σ = 32 px trên ảnh 256 × 256</span>
+    </div>
+    <figure>
+      <div class="row three">
+        <div class="cell"><canvas class="pic" data-src="edge" width="240" height="240"></canvas><span class="lbl"><b>Đường viền toàn ảnh</b> G<sub>t,n</sub></span></div>
+        <div class="cell"><canvas id="g-w" class="pic" width="240" height="240"></canvas><span class="lbl"><b>Ba quả chuông</b> W<sub>r</sub></span></div>
+        <div class="cell"><canvas id="g-out" class="pic" width="240" height="240"></canvas><span class="lbl"><b>Đường viền đã chấm vùng</b> G<sub>R</sub></span></div>
+      </div>
+      <figcaption>σ nhỏ thì chỉ còn đúng lòng bàn tay, ngón tay ở rìa bị mất. σ lớn thì đường viền của vai và áo lọt vào, làm loãng tín hiệu. Bản cài đặt lại hiện dùng σ = 32 px.</figcaption>
+    </figure>
+  </div>
+
+  <div class="sub">
+    <span class="eyebrow">Mục 3.3 · Hình 5 · Công thức 4</span>
+    <h3>Khối GRM để đường viền đặt câu hỏi</h3>
+    <div class="prose">
+      <p>Bên trong bộ vẽ ảnh luôn có một bản phác đang dở, gọi là X<sub>in</sub>. Khối GRM cho mỗi điểm trên đường viền hỏi xem những chỗ nào trong bản phác liên quan tới nó.</p>
+      <p>Câu trả lời là một bộ trọng số. GRM gom thông tin từ bản phác theo các trọng số đó rồi cộng thêm vào bản phác cũ. Vì là cộng thêm, nếu GRM chưa học được gì thì bản phác vẫn giữ nguyên.</p>
+    </div>
+    <div class="formula">X<sub>out</sub> = X<sub>in</sub> + softmax( Q(X<sub>g</sub>) · K(X<sub>in</sub>)ᵀ / √C ) · V(X<sub>in</sub>)</div>
+    <div class="qkv">
+      <span><b>Q</b> câu hỏi, lấy từ đường viền</span>
+      <span><b>K</b> nhãn để so, lấy từ bản phác</span>
+      <span><b>V</b> nội dung để gom, lấy từ bản phác</span>
+    </div>
+    <figure>
+      <div class="grm-demo">
+        <div class="cell"><canvas id="grm-q" class="pic" width="480" height="480" tabindex="0" aria-label="Bản đồ đường viền chia ô. Chọn một ô bằng chuột hoặc phím mũi tên."></canvas><span class="lbl"><b>Đường viền đã chấm vùng</b><br>chọn một ô để đặt câu hỏi</span></div>
+        <div class="cell"><canvas id="grm-kv" class="pic" width="480" height="480"></canvas><span class="lbl"><b>Bản phác</b><br>ô càng vàng thì được chú ý càng nhiều</span></div>
+      </div>
+      <figcaption>Một ô không có đường viền chỉ hỏi chung chung, nên sự chú ý toả đều ra xung quanh. Một ô nằm trên viền bàn tay thì tập trung vào các ô viền khác của cùng bàn tay. Trọng số trong hình được tính bằng một công thức đơn giản để minh hoạ, không lấy từ mô hình đã train.</figcaption>
+    </figure>
+  </div>
+
+  <div class="sub">
+    <span class="eyebrow">Mục 3.1</span>
+    <h3>Trộn bằng mặt nạ</h3>
+    <div class="prose"><p>Bước cuối là một phép trộn ở từng điểm. Mặt nạ O gần 1 thì lấy ảnh đã kéo. Mặt nạ O gần 0 thì lấy ảnh vừa vẽ.</p></div>
+    <figure>
+      <div class="eq">
+        <div class="cell"><canvas class="pic" data-src="Ist" width="240" height="240"></canvas><span class="lbl"><b>Ảnh đã kéo</b></span></div>
+        <span class="op">×</span>
+        <div class="cell"><canvas class="pic" data-src="O" width="240" height="240"></canvas><span class="lbl"><b>O</b></span></div>
+        <span class="op">+</span>
+        <div class="cell"><canvas class="pic" data-src="Igen" width="240" height="240"></canvas><span class="lbl"><b>Ảnh vẽ ra</b> I<sub>gen</sub></span></div>
+        <span class="op">×</span>
+        <div class="cell"><canvas class="pic" data-src="Oinv" width="240" height="240"></canvas><span class="lbl"><b>1 − O</b></span></div>
+        <span class="op">=</span>
+        <div class="cell"><canvas class="pic" data-src="out" width="240" height="240"></canvas><span class="lbl"><b>Kết quả</b> Î<sub>t</sub></span></div>
+      </div>
+      <figcaption>Thân áo và nền giữ nguyên từ ảnh thật nên rất sát với người trong ảnh nguồn. Hai bàn tay và phần áo vừa lộ ra lấy từ ảnh vẽ ra.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ======================================================= 5 -->
+<section id="hoc">
+  <span class="eyebrow">Mục 3.4 · Công thức 5 đến 10</span>
+  <h2>GReg học như thế nào</h2>
+  <div class="prose">
+    <p>Khi train, GReg vẽ thử một khung hình rồi so với khung hình thật. Mỗi phép so là một hàm mất mát. Có tất cả bốn phép so, cộng lại theo bốn trọng số λ.</p>
+  </div>
+  <div class="formula">L = λ<sub>per</sub>·L<sub>per</sub> + λ<sub>r-per</sub>·L<sub>r-per</sub> + λ<sub>struct</sub>·L<sub>struct</sub> + λ<sub>adv</sub>·L<sub>adv</sub></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Phép so</th><th>So cái gì với cái gì</th><th>Để làm gì</th></tr></thead>
+      <tbody>
+        <tr><td class="sym">L<sub>per</sub></td><td>Cả khung hình vẽ ra với khung hình thật, nhìn qua mạng VGG-19</td><td>Ảnh tổng thể đúng về nội dung và kết cấu</td></tr>
+        <tr><td class="sym">L<sub>r-per</sub></td><td>Riêng mặt và hai tay vẽ ra với mặt và hai tay thật, cũng qua VGG-19</td><td>Ép mô hình chú ý tới chi tiết nhỏ</td></tr>
+        <tr><td class="sym">L<sub>struct</sub></td><td>Đường viền do chuyên gia vùng vẽ với đường viền của vùng thật</td><td>Dạy chuyên gia vùng</td></tr>
+        <tr><td class="sym">L<sub>adv</sub></td><td>Ba giám khảo chấm mặt và hai tay là thật hay giả</td><td>Làm mặt và tay trông thật, sắc nét</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="prose">VGG-19 là một mạng nhận diện ảnh đã được train sẵn. So hai ảnh qua mạng này nghĩa là so nét, kết cấu và hình dạng, thay vì so từng điểm màu. Cách so này cho ảnh sắc hơn.</p>
+
+  <div class="sub">
+    <h3>Ba giám khảo</h3>
+    <div class="prose">
+      <p>Có ba giám khảo, mỗi người chỉ chấm một vùng: mặt, tay trái, tay phải. Giám khảo nhìn vùng ảnh kèm đường viền của nó, rồi chấm từng ô nhỏ là thật hay giả. Kiểu giám khảo chấm theo ô này tên là PatchGAN.</p>
+      <p>Bộ vẽ ảnh được thưởng mỗi khi lừa được giám khảo. Giám khảo được thưởng mỗi khi bắt đúng. Hai bên thi với nhau nên càng train, ảnh vẽ ra càng khó phân biệt với ảnh thật.</p>
+    </div>
+    <figure>
+      <div class="judge-scroll"><div class="judge-inner">
+        <div class="jrow">
+          <canvas id="d-real" class="pic" width="96" height="96"></canvas>
+          <canvas id="d-real-e" class="pic" width="96" height="96"></canvas>
+          <svg class="arr" viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          <div class="jbox"><b>Giám khảo tay phải</b>xem ảnh thật</div>
+          <svg class="arr" viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          <div class="patch" id="p-real"></div>
+          <div class="jverdict">Điểm "thật" trung bình <b id="v-real">0.86</b></div>
+        </div>
+        <div class="jrow">
+          <canvas id="d-fake" class="pic" width="96" height="96"></canvas>
+          <canvas id="d-fake-e" class="pic" width="96" height="96"></canvas>
+          <svg class="arr" viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          <div class="jbox"><b>Giám khảo tay phải</b>xem ảnh vẽ ra</div>
+          <svg class="arr" viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19m-5-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          <div class="patch" id="p-fake"></div>
+          <div class="jverdict">Điểm "thật" trung bình <b id="v-fake">0.15</b><br><span class="mono" id="v-epoch">vòng train 1 / 100</span></div>
+        </div>
+      </div></div>
+      <figcaption>Mỗi ô vuông nhỏ là điểm của một mảnh ảnh, xanh là "thật", đỏ là "giả". Hình động mô phỏng việc ảnh vẽ ra dần lừa được giám khảo qua các vòng train. Đây là minh hoạ, không phải điểm thật.</figcaption>
+    </figure>
+  </div>
+
+  <div class="sub">
+    <h3>Cài đặt train trong bài báo</h3>
+    <dl class="specs">
+      <dt>Dữ liệu</dt><dd>SignAvatars, phần HamNoSys (5.800 video, 4 ngôn ngữ ký hiệu) và phần How2Sign. Chia ngẫu nhiên 8 phần train, 2 phần test.</dd>
+      <dt>Kích thước ảnh</dt><dd>256 × 256</dd>
+      <dt>Cặp ảnh</dt><dd>Mỗi video lấy ngẫu nhiên một khung làm nguồn, một khung làm đích</dd>
+      <dt>Số vòng</dt><dd>100 vòng (epoch)</dd>
+      <dt>Tối ưu</dt><dd>Adam, tốc độ học 2 × 10⁻⁴, giảm 10 lần ở vòng 70 và vòng 90</dd>
+      <dt>Phần cứng</dt><dd>1 GPU RTX 3090</dd>
+    </dl>
+  </div>
+</section>
+
+<!-- ======================================================= 6 -->
+<section id="ket-qua">
+  <span class="eyebrow">Bảng 1 và Bảng 2 trong bài báo</span>
+  <h2>Kết quả trong bài báo</h2>
+  <div class="prose">
+    <p>FVD đo video tạo ra khác video thật bao nhiêu, xét cả từng khung hình lẫn chuyển động. Số càng nhỏ càng tốt. Các số dưới đây lấy từ phần HamNoSys. Thanh dài hơn là kết quả tệ hơn, và trục bắt đầu từ 0.</p>
+  </div>
+  <div class="charts">
+    <div class="chart" role="img" aria-label="FVD trên HamNoSys: GReg 391,3; PGMM 454,2; NTED 554,8; SignGAN 582,4.">
+      <h3>So với các phương pháp khác</h3>
+      <div class="brow"><span><b>GReg</b></span><span class="track"><span class="fill hi" style="width:65.2%"></span></span><span class="bv">391,3</span></div>
+      <div class="brow"><span>PGMM</span><span class="track"><span class="fill" style="width:75.7%"></span></span><span class="bv">454,2</span></div>
+      <div class="brow"><span>NTED</span><span class="track"><span class="fill" style="width:92.5%"></span></span><span class="bv">554,8</span></div>
+      <div class="brow"><span>SignGAN</span><span class="track"><span class="fill" style="width:97.1%"></span></span><span class="bv">582,4</span></div>
+      <div class="axis"><span></span><span class="ticks"><span>0</span><span>200</span><span>400</span><span>600</span></span><span></span></div>
+    </div>
+    <div class="chart" role="img" aria-label="FVD khi bỏ bớt từng phần: GReg đầy đủ 391,3; dùng đốm sáng 412,3; dùng bộ xương que 422,1; bỏ giám khảo 434,6; bỏ GRM 441,4; bỏ chuyên gia vùng 458,3.">
+      <h3>Bỏ bớt từng phần của GReg</h3>
+      <div class="brow"><span><b>GReg đầy đủ</b></span><span class="track"><span class="fill hi" style="width:65.2%"></span></span><span class="bv">391,3</span></div>
+      <div class="brow"><span>Dùng đốm sáng</span><span class="track"><span class="fill" style="width:68.7%"></span></span><span class="bv">412,3</span></div>
+      <div class="brow"><span>Dùng xương que</span><span class="track"><span class="fill" style="width:70.4%"></span></span><span class="bv">422,1</span></div>
+      <div class="brow"><span>Bỏ giám khảo</span><span class="track"><span class="fill" style="width:72.4%"></span></span><span class="bv">434,6</span></div>
+      <div class="brow"><span>Bỏ GRM</span><span class="track"><span class="fill" style="width:73.6%"></span></span><span class="bv">441,4</span></div>
+      <div class="brow"><span>Bỏ chuyên gia vùng</span><span class="track"><span class="fill" style="width:76.4%"></span></span><span class="bv">458,3</span></div>
+      <div class="axis"><span></span><span class="ticks"><span>0</span><span>200</span><span>400</span><span>600</span></span><span></span></div>
+    </div>
+  </div>
+  <p class="note">Bỏ chuyên gia vùng làm FVD tăng nhiều nhất, từ 391,3 lên 458,3. Thay bản đồ hướng mặt bằng bộ xương que hay đốm sáng cũng làm kết quả kém đi. Bài báo báo cả độ lệch của FVD, khoảng ±25 đến ±42 tuỳ dòng.</p>
+</section>
+
+<!-- ======================================================= 7 -->
+<section id="ky-hieu">
+  <span class="eyebrow">Tra cứu</span>
+  <h2>Bảng ký hiệu</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Ký hiệu</th><th>Gọi đơn giản</th><th>Là gì</th></tr></thead>
+      <tbody>
+        <tr><td class="sym">I<sub>s</sub></td><td>Ảnh nguồn</td><td>Ảnh thật duy nhất của người cần vẽ</td></tr>
+        <tr><td class="sym">N<sub>s</sub>, N<sub>t</sub></td><td>Bản đồ hướng mặt cũ, mới</td><td>Vẽ từ SMPL-X cho tư thế trong ảnh nguồn và tư thế cần vẽ</td></tr>
+        <tr><td class="sym">F</td><td>Bản đồ luồng</td><td>Mỗi điểm của ảnh mới lấy màu từ đâu trong ảnh nguồn</td></tr>
+        <tr><td class="sym">O</td><td>Mặt nạ che</td><td>Gần 1 là dùng được ảnh cũ, gần 0 là phải vẽ mới</td></tr>
+        <tr><td class="sym">I<sub>s→t</sub></td><td>Ảnh đã kéo</td><td>Ảnh nguồn sau khi kéo theo luồng F</td></tr>
+        <tr><td class="sym">X<sub>style</sub></td><td>Mã phong cách</td><td>Dãy số tóm tắt ngoại hình người trong ảnh nguồn</td></tr>
+        <tr><td class="sym">R</td><td>Khung gợi ý</td><td>Ba tấm nền đen có dán kết quả của chuyên gia vùng</td></tr>
+        <tr><td class="sym">G<sub>t,n</sub></td><td>Đường viền</td><td>Đường viền của bản đồ hướng mặt mới, công thức 2</td></tr>
+        <tr><td class="sym">W<sub>r</sub></td><td>Quả chuông vùng</td><td>Trọng số sáng ở giữa mặt hoặc giữa bàn tay, công thức 1</td></tr>
+        <tr><td class="sym">G<sub>R</sub></td><td>Đường viền đã chấm vùng</td><td>Ba tấm đường viền, mỗi tấm rõ ở một vùng, công thức 3</td></tr>
+        <tr><td class="sym">X<sub>g</sub></td><td>Đặc trưng đường viền</td><td>G<sub>R</sub> sau khi qua bộ mã hoá, dùng làm câu hỏi cho GRM</td></tr>
+        <tr><td class="sym">I<sub>gen</sub></td><td>Ảnh vẽ ra</td><td>Đầu ra của bộ vẽ ảnh, trước khi trộn</td></tr>
+        <tr><td class="sym">Î<sub>t</sub></td><td>Kết quả</td><td>Khung hình cuối cùng</td></tr>
+        <tr><td class="sym">RE</td><td>Chuyên gia vùng</td><td>Regional Expert, mạng nhỏ vẽ riêng mặt hoặc tay</td></tr>
+        <tr><td class="sym">GRM</td><td>Khối làm sắc</td><td>Gradient-enhanced Refine Module, dùng đường viền làm câu hỏi</td></tr>
+        <tr><td class="sym">D<sub>r</sub></td><td>Giám khảo vùng</td><td>Mạng chấm thật hay giả cho một vùng</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Tay trái, tay phải tính theo người ra ký hiệu. Tay phải của họ nằm ở bên trái ảnh.</p>
+</section>
+
+<!-- ======================================================= 8 -->
+<section id="bo-trong">
+  <span class="eyebrow">Dành cho người cài đặt lại</span>
+  <h2>Những gì bài báo không nói</h2>
+  <div class="prose"><p>Bài báo mô tả ý tưởng rõ nhưng thiếu nhiều con số. Muốn chạy lại thì phải tự chọn các giá trị sau.</p></div>
+  <ul class="gaps">
+    <li>Kích thước vùng cắt H<sub>r</sub> × W<sub>r</sub> cho mặt và tay.</li>
+    <li>Độ rộng σ của quả chuông.</li>
+    <li>Bốn trọng số λ của hàm mất mát.</li>
+    <li>Chuyên gia vùng vẽ ra cái gì. Chữ trong bài nói là đường viền, nhưng công thức 8 lại so với vùng ảnh xám.</li>
+    <li>Kiến trúc chi tiết của chuyên gia vùng, bộ mã hoá đường viền và giám khảo.</li>
+    <li>Ba khối GRM đặt ở độ phân giải nào.</li>
+    <li>Phần đoán chuyển động được train trước hay train cùng lúc với phần còn lại.</li>
+  </ul>
+  <p class="prose">Bản cài đặt lại trong thư mục GReg ghi lựa chọn cho từng mục trong docs/decisions.md.</p>
+</section>
+
+<footer>
+  Nguồn: Tongkai Shi, Lianyu Hu, Fanhua Shang, Liqing Gao, Wei Feng. <i>GReg: Geometry-Aware Region Refinement for Sign Language Video Generation.</i> ICCV 2025, trang 16472–16481. Hình người, luồng, mặt nạ và trọng số chú ý trên trang được tính từ một mô hình 3D đơn giản để minh hoạ.
+</footer>
+</div>
+
+<script>
+(function(){
+'use strict';
+var RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var $ = function(s){ return document.querySelector(s); };
+var DEG = Math.PI/180;
+function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function ease(t){ return t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2; }
+
+/* ------------------------------------------------------------ toy SMPL-X-like body */
+var POSE_A = {R:{up:100,fo:62,hand:40,spread:.45}, L:{up:80,fo:118,hand:140,spread:.45}, tilt:0};
+var POSE_B = {R:{up:122,fo:-68,hand:-80,spread:1.25}, L:{up:72,fo:198,hand:188,spread:.9}, tilt:-.012};
+function mixPose(a,b,t){
+  function m(s){ return {up:lerp(a[s].up,b[s].up,t), fo:lerp(a[s].fo,b[s].fo,t), hand:lerp(a[s].hand,b[s].hand,t), spread:lerp(a[s].spread,b[s].spread,t)}; }
+  return {R:m('R'), L:m('L'), tilt:lerp(a.tilt,b.tilt,t)};
+}
+function buildBody(P){
+  var prims=[], joints={}, centers={};
+  function add(a,b,r,z,part,mat,flat,sy){ prims.push({a:a,b:b,r:r,z:z,part:part,mat:mat,flat:flat==null?1:flat,sy:sy||1}); }
+  add([.5,.68],[.5,1.12],.16,0,0,'shirt',.38);
+  add([.385,.535],[.615,.535],.075,0,0,'shirt',.5);
+  add([.5,.40],[.5,.50],.045,.004,0,'skin',.6);
+  var hx=.5+P.tilt, hy=.27;
+  add([hx-.092,hy+.012],[hx-.092,hy+.012],.021,0,1,'skin',.7);
+  add([hx+.092,hy+.012],[hx+.092,hy+.012],.021,0,1,'skin',.7);
+  add([hx,hy],[hx,hy],.092,.012,1,'head',1,1.17);
+  add([hx,hy+.025],[hx,hy+.025],.017,.094,1,'skin',1);
+  joints.head=[hx,hy]; centers.face=[hx,hy+.012];
+  arm('R',[.385,.535],3,-1);
+  arm('L',[.615,.535],2,1);
+  return {prims:prims, joints:joints, centers:centers};
+  function arm(key,S,part,side){
+    var A=P[key];
+    var E=[S[0]+.17*Math.cos(A.up*DEG), S[1]+.17*Math.sin(A.up*DEG)];
+    var W=[E[0]+.15*Math.cos(A.fo*DEG), E[1]+.15*Math.sin(A.fo*DEG)];
+    add(S,E,.05,.02,0,'shirt',.8);
+    add(E,W,.038,.05,0,'skin',.85);
+    var hd=[Math.cos(A.hand*DEG),Math.sin(A.hand*DEG)], pp=[-hd[1],hd[0]];
+    var P1=[W[0]+hd[0]*.006,W[1]+hd[1]*.006], P2=[W[0]+hd[0]*.04,W[1]+hd[1]*.04];
+    add(P1,P2,.03,.074,part,'skin',.6);
+    var lens=[.05,.058,.055,.045], tips=[], bases=[];
+    for(var i=0;i<4;i++){
+      var off=i-1.5, ang=(A.hand+off*A.spread*9)*DEG, d=[Math.cos(ang),Math.sin(ang)];
+      var b=[P2[0]+pp[0]*off*.0165+hd[0]*.012, P2[1]+pp[1]*off*.0165+hd[1]*.012];
+      var t=[b[0]+d[0]*lens[i], b[1]+d[1]*lens[i]];
+      add(b,t,.0105,.086,part,'skin',1); tips.push(t); bases.push(b);
+    }
+    var tdx=hd[0]*.55+pp[0]*side*.85, tdy=hd[1]*.55+pp[1]*side*.85, tn=Math.hypot(tdx,tdy);
+    var tb=[P1[0]+pp[0]*side*.024+hd[0]*.008, P1[1]+pp[1]*side*.024+hd[1]*.008];
+    var tt=[tb[0]+tdx/tn*.036, tb[1]+tdy/tn*.036];
+    add(tb,tt,.012,.082,part,'skin',1);
+    joints[key]={S:S,E:E,W:W,P1:P1,P2:P2,tips:tips,bases:bases,tb:tb,tt:tt};
+    centers[key]=[(P1[0]+P2[0])/2+hd[0]*.02, (P1[1]+P2[1])/2+hd[1]*.02];
+  }
+}
+function render(P,S,win){
+  var body=buildBody(P), N=S*S;
+  var pre=body.prims.map(function(p){
+    var ax=p.a[0]*S, ay=p.a[1]*S, bx=p.b[0]*S, by=p.b[1]*S, ex=bx-ax, ey=by-ay, L2=ex*ex+ey*ey, L=Math.sqrt(L2), r=p.r*S;
+    return {ax:ax,ay:ay,ex:ex,ey:ey,L2:L2,ux:L>1e-6?ex/L:1,uy:L>1e-6?ey/L:0,r:r,z:p.z*S,flat:p.flat,sy:p.sy,part:p.part,mat:p.mat,
+      x0:Math.min(ax,bx)-r,x1:Math.max(ax,bx)+r,y0:Math.min(ay,by)-r*p.sy,y1:Math.max(ay,by)+r*p.sy};
+  });
+  var id=new Int16Array(N).fill(-1), nx=new Float32Array(N), ny=new Float32Array(N), nz=new Float32Array(N),
+      tt=new Float32Array(N), du=new Float32Array(N), dv=new Float32Array(N);
+  var X0=0,X1=S,Y0=0,Y1=S;
+  if(win){ X0=Math.max(0,win.x0); X1=Math.min(S,win.x1); Y0=Math.max(0,win.y0); Y1=Math.min(S,win.y1); }
+  for(var y=Y0;y<Y1;y++){ var py=y+.5;
+    for(var x=X0;x<X1;x++){ var px=x+.5, best=-1e9, bk=-1, bt=0, bdx=0, bdy=0, bs=0, bdys=0;
+      for(var k=0;k<pre.length;k++){ var q=pre[k];
+        if(px<q.x0||px>q.x1||py<q.y0||py>q.y1) continue;
+        var t=q.L2>0?((px-q.ax)*q.ex+(py-q.ay)*q.ey)/q.L2:0; t=t<0?0:t>1?1:t;
+        var dx=px-(q.ax+t*q.ex), dyr=py-(q.ay+t*q.ey), dys=dyr/q.sy, d2=dx*dx+dys*dys, r2=q.r*q.r;
+        if(d2>=r2) continue;
+        var s=Math.sqrt(r2-d2), h=q.z+q.flat*s;
+        if(h>best){ best=h; bk=k; bt=t; bdx=dx; bdy=dyr; bs=s; bdys=dys; }
+      }
+      if(bk<0) continue;
+      var i=y*S+x, qq=pre[bk], sm=Math.max(bs,.6);
+      var a=qq.flat*bdx/sm, b=qq.flat*bdys/(qq.sy*sm), n=Math.hypot(a,b,1);
+      id[i]=bk; nx[i]=a/n; ny[i]=b/n; nz[i]=1/n;
+      tt[i]=bt; du[i]=bdx*qq.ux+bdy*qq.uy; dv[i]=-bdx*qq.uy+bdy*qq.ux;
+    }
+  }
+  return {S:S,body:body,pre:pre,id:id,nx:nx,ny:ny,nz:nz,tt:tt,du:du,dv:dv};
+}
+function normalRGBA(R){
+  var S=R.S, out=new Uint8ClampedArray(S*S*4);
+  for(var i=0;i<S*S;i++){ var o=i*4; out[o+3]=255; if(R.id[i]<0) continue;
+    out[o]=(R.nx[i]+1)*127.5; out[o+1]=(-R.ny[i]+1)*127.5; out[o+2]=(R.nz[i]+1)*127.5; }
+  return out;
+}
+var LIGHT=(function(){ var v=[-.38,-.52,.76], n=Math.hypot(v[0],v[1],v[2]); return [v[0]/n,v[1]/n,v[2]/n]; })();
+var MAT={shirt:[46,52,68], skin:[222,170,135], hair:[52,38,32], lip:[176,92,88], eye:[30,26,28], bg:[62,120,88]};
+function rgbRGBA(R){
+  var S=R.S, out=new Uint8ClampedArray(S*S*4), hx=R.body.joints.head[0], hy=R.body.joints.head[1];
+  for(var y=0;y<S;y++) for(var x=0;x<S;x++){
+    var i=y*S+x, o=i*4, k=R.id[i]; out[o+3]=255;
+    if(k<0){ var g=1-.18*(y/S); out[o]=MAT.bg[0]*g; out[o+1]=MAT.bg[1]*g; out[o+2]=MAT.bg[2]*g; continue; }
+    var q=R.pre[k], base=MAT[q.mat]||MAT.skin;
+    if(q.mat==='head'){
+      base=MAT.skin; var fx=(x+.5)/S-hx, fy=(y+.5)/S-hy;
+      if(R.ny[i]<-.42 || (Math.abs(R.nx[i])>.72 && fy<.01)) base=MAT.hair;
+      else if(Math.hypot(fx-.033,fy-.004)<.0105 || Math.hypot(fx+.033,fy-.004)<.0105) base=MAT.eye;
+      else if(Math.abs(fy+.022)<.0042 && Math.abs(Math.abs(fx)-.034)<.018) base=MAT.hair;
+      else if(Math.abs(fy-.055)<.0045 && Math.abs(fx)<.022) base=MAT.lip;
+    }
+    var lam=Math.max(0,R.nx[i]*LIGHT[0]+R.ny[i]*LIGHT[1]+R.nz[i]*LIGHT[2]), f=.3+.8*lam;
+    out[o]=base[0]*f; out[o+1]=base[1]*f; out[o+2]=base[2]*f;
+  }
+  return out;
+}
+/* Eq. 2: grayscale, backward differences, zero padding on top/left */
+function gradOf(rgba,S){
+  var N=S*S, g=new Float32Array(N), m=new Float32Array(N);
+  for(var i=0;i<N;i++) g[i]=(.299*rgba[i*4]+.587*rgba[i*4+1]+.114*rgba[i*4+2])/255;
+  for(var y=0;y<S;y++) for(var x=0;x<S;x++){ var j=y*S+x, c=g[j], a=c-(y>0?g[j-S]:0), b=c-(x>0?g[j-1]:0); m[j]=Math.sqrt(a*a+b*b+1e-6); }
+  return {gray:g, mag:m};
+}
+function blur(a,S,r,passes){
+  var cur=a, w=2*r+1;
+  for(var p=0;p<passes;p++){
+    var tmp=new Float32Array(S*S), out=new Float32Array(S*S), x, y, acc, row;
+    for(y=0;y<S;y++){ row=y*S; acc=0; for(x=-r;x<=r;x++) acc+=cur[row+clamp(x,0,S-1)];
+      for(x=0;x<S;x++){ tmp[row+x]=acc/w; acc+=cur[row+Math.min(x+r+1,S-1)]-cur[row+Math.max(x-r,0)]; } }
+    for(x=0;x<S;x++){ acc=0; for(y=-r;y<=r;y++) acc+=tmp[clamp(y,0,S-1)*S+x];
+      for(y=0;y<S;y++){ out[y*S+x]=acc/w; acc+=tmp[Math.min(y+r+1,S-1)*S+x]-tmp[Math.max(y-r,0)*S+x]; } }
+    cur=out;
+  }
+  return cur;
+}
+function blurRGBA(rgba,S,r,p){
+  var N=S*S, ch=[0,1,2].map(function(c){ var a=new Float32Array(N); for(var i=0;i<N;i++) a[i]=rgba[i*4+c]; return blur(a,S,r,p); });
+  var out=new Uint8ClampedArray(N*4);
+  for(var i=0;i<N;i++){ out[i*4]=ch[0][i]; out[i*4+1]=ch[1][i]; out[i*4+2]=ch[2][i]; out[i*4+3]=255; }
+  return out;
+}
+function sample(rgba,S,x,y){
+  var x0=Math.floor(x), y0=Math.floor(y), fx=x-x0, fy=y-y0;
+  x0=clamp(x0,0,S-1); y0=clamp(y0,0,S-1); var x1=Math.min(x0+1,S-1), y1=Math.min(y0+1,S-1), r=[0,0,0];
+  for(var c=0;c<3;c++){ var a=rgba[(y0*S+x0)*4+c], b=rgba[(y0*S+x1)*4+c], d=rgba[(y1*S+x0)*4+c], e=rgba[(y1*S+x1)*4+c];
+    r[c]=(a*(1-fx)+b*fx)*(1-fy)+(d*(1-fx)+e*fx)*fy; }
+  return r;
+}
+function monoRGBA(arr,S,k,tint){
+  tint=tint||[255,255,255]; var out=new Uint8ClampedArray(S*S*4);
+  for(var i=0;i<S*S;i++){ var v=Math.min(1,arr[i]*k); out[i*4]=tint[0]*v; out[i*4+1]=tint[1]*v; out[i*4+2]=tint[2]*v; out[i*4+3]=255; }
+  return out;
+}
+function toCanvas(rgba,S){ var c=document.createElement('canvas'); c.width=c.height=S; c.getContext('2d').putImageData(new ImageData(rgba,S,S),0,0); return c; }
+function paint(cv,src){ var ctx=cv.getContext('2d'); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high'; ctx.clearRect(0,0,cv.width,cv.height); ctx.drawImage(src,0,0,cv.width,cv.height); }
+function arrow(ctx,x0,y0,x1,y1,head){
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+  var a=Math.atan2(y1-y0,x1-x0), h=Math.min(head||5,Math.hypot(x1-x0,y1-y0)*.45);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x1-h*Math.cos(a-.45),y1-h*Math.sin(a-.45)); ctx.lineTo(x1-h*Math.cos(a+.45),y1-h*Math.sin(a+.45)); ctx.closePath(); ctx.fill();
+}
+
+/* regions: face, signer's left hand (image right), signer's right hand (image left) */
+var REG=[{key:'face',col:[236,94,146]},{key:'L',col:[92,174,240]},{key:'R',col:[98,204,118]}];
+function regionBoxes(R,frac){
+  var S=R.S, s=Math.round(S*frac);
+  return REG.map(function(g){ var c=R.body.centers[g.key], cx=c[0]*S, cy=c[1]*S;
+    return {key:g.key,col:g.col,cx:cx,cy:cy,s:s,x0:clamp(Math.round(cx-s/2),0,S-s),y0:clamp(Math.round(cy-s/2),0,S-s)}; });
+}
+function cropRGBA(rgba,S,b){
+  var s=b.s, out=new Uint8ClampedArray(s*s*4);
+  for(var y=0;y<s;y++) for(var x=0;x<s;x++){ var si=((b.y0+y)*S+b.x0+x)*4, di=(y*s+x)*4;
+    out[di]=rgba[si]; out[di+1]=rgba[si+1]; out[di+2]=rgba[si+2]; out[di+3]=255; }
+  return out;
+}
+function cropEdge(rgba,S,b,soft){
+  var m=gradOf(cropRGBA(rgba,S,b),b.s).mag;
+  for(var i=0;i<b.s;i++){ m[i]=0; m[i*b.s]=0; }           // hide the zero-padding border
+  return soft ? blur(m,b.s,1,1) : m;
+}
+
+/* ------------------------------------------------------------ the two poses + derived maps */
+var S=240;
+var RA=render(POSE_A,S), RB=render(POSE_B,S);
+var rgbA=rgbRGBA(RA), rgbB=rgbRGBA(RB), nA=normalRGBA(RA), nB=normalRGBA(RB);
+var gNB=gradOf(nB,S);
+var boxesB=regionBoxes(RB,.25);
+
+function computeWarp(Rt,Rs,rgbS,rgbT){
+  var N=S*S, fx=new Float32Array(N), fy=new Float32Array(N), x, y, i;
+  for(y=0;y<S;y++) for(x=0;x<S;x++){ i=y*S+x; var k=Rt.id[i]; if(k<0) continue;
+    var q=Rs.pre[k], cx=q.ax+Rt.tt[i]*q.ex, cy=q.ay+Rt.tt[i]*q.ey;
+    fx[i]=cx+Rt.du[i]*q.ux-Rt.dv[i]*q.uy-(x+.5); fy[i]=cy+Rt.du[i]*q.uy+Rt.dv[i]*q.ux-(y+.5); }
+  var r=Math.round(S*.03), sfx=blur(fx,S,r,3), sfy=blur(fy,S,r,3);   // smooth like a few TPS warps
+  var warped=new Uint8ClampedArray(N*4), O=new Float32Array(N);
+  for(y=0;y<S;y++) for(x=0;x<S;x++){ i=y*S+x;
+    var sx=x+sfx[i], sy=y+sfy[i], o=i*4; warped[o+3]=255;
+    if(sx<0||sy<0||sx>S-1||sy>S-1){ O[i]=0; continue; }
+    var c=sample(rgbS,S,sx,sy); warped[o]=c[0]; warped[o+1]=c[1]; warped[o+2]=c[2];
+    var sid=Rs.id[Math.round(sy)*S+Math.round(sx)], k=Rt.id[i], ok;
+    if(k<0) ok = sid===-1;
+    else ok = sid===k || (sid>=0 && Rt.pre[k].part===0 && Rs.pre[sid].part===0 && Rs.pre[sid].mat===Rt.pre[k].mat);
+    O[i]=ok?1:0;
+  }
+  O=blur(O,S,1,2);
+  var Igen=blurRGBA(rgbT,S,1,1), out=new Uint8ClampedArray(N*4), Oinv=new Float32Array(N);
+  for(i=0;i<N;i++){ var w=O[i]; Oinv[i]=1-w;
+    for(var c2=0;c2<3;c2++) out[i*4+c2]=w*warped[i*4+c2]+(1-w)*Igen[i*4+c2]; out[i*4+3]=255; }
+  return {fx:sfx, fy:sfy, warped:warped, O:O, Oinv:Oinv, Igen:Igen, out:out};
+}
+var WP=computeWarp(RB,RA,rgbA,rgbB);
+
+function flowCanvas(){
+  var c=document.createElement('canvas'); c.width=c.height=S*2; var ctx=c.getContext('2d'); ctx.scale(2,2);
+  ctx.fillStyle='#0d0f15'; ctx.fillRect(0,0,S,S);
+  ctx.globalAlpha=.3; ctx.drawImage(toCanvas(nB,S),0,0); ctx.globalAlpha=.9;
+  ctx.strokeStyle='#eef0f6'; ctx.fillStyle='#eef0f6'; ctx.lineWidth=.9;
+  var step=S/16;
+  for(var gy=step/2; gy<S; gy+=step) for(var gx=step/2; gx<S; gx+=step){
+    var i=Math.floor(gy)*S+Math.floor(gx), dx=WP.fx[i], dy=WP.fy[i];
+    if(Math.hypot(dx,dy)<2) continue;
+    arrow(ctx,gx,gy,gx+dx,gy+dy,4);
+  }
+  return c;
+}
+function priorComposite(soft){
+  var out=new Uint8ClampedArray(S*S*4), patches=[];
+  for(var i=0;i<S*S;i++) out[i*4+3]=255;
+  boxesB.forEach(function(b){
+    var m=cropEdge(rgbB,S,b,soft); patches.push(m);
+    for(var y=0;y<b.s;y++) for(var x=0;x<b.s;x++){
+      var v=Math.min(1,m[y*b.s+x]*(soft?3.6:3)), o=((b.y0+y)*S+b.x0+x)*4;
+      out[o]=Math.max(out[o],b.col[0]*v); out[o+1]=Math.max(out[o+1],b.col[1]*v); out[o+2]=Math.max(out[o+2],b.col[2]*v);
+    }
+  });
+  return {img:out, patches:patches};
+}
+var PRIOR=priorComposite(true), TARGET=priorComposite(false);
+
+function gauss(sig, mode){
+  var out=new Uint8ClampedArray(S*S*4), ch=[new Float32Array(S*S),new Float32Array(S*S),new Float32Array(S*S)];
+  for(var y=0;y<S;y++) for(var x=0;x<S;x++){
+    var i=y*S+x, r=0,g=0,b=0;
+    for(var k=0;k<3;k++){ var bx=boxesB[k], d2=(x+.5-bx.cx)*(x+.5-bx.cx)+(y+.5-bx.cy)*(y+.5-bx.cy), w=Math.exp(-d2/(2*sig*sig));
+      var v = mode==='w' ? w*.92 : Math.min(1,gNB.mag[i]*3.2)*w; ch[k][i]=v;
+      r+=bx.col[0]*v; g+=bx.col[1]*v; b+=bx.col[2]*v; }
+    out[i*4]=r; out[i*4+1]=g; out[i*4+2]=b; out[i*4+3]=255;
+  }
+  return {img:out, ch:ch};
+}
+var GR32=gauss(32*S/256,'gr');
+
+var C = {
+  Is:toCanvas(rgbA,S), It:toCanvas(rgbB,S), Ns:toCanvas(nA,S), Nt:toCanvas(nB,S),
+  gray:toCanvas(monoRGBA(gNB.gray,S,1),S), edge:toCanvas(monoRGBA(gNB.mag,S,3.2),S),
+  F:flowCanvas(), O:toCanvas(monoRGBA(WP.O,S,1),S), Oinv:toCanvas(monoRGBA(WP.Oinv,S,1),S),
+  Ist:toCanvas(WP.warped,S), Igen:toCanvas(WP.Igen,S), out:toCanvas(WP.out,S),
+  R:toCanvas(PRIOR.img,S), GR:toCanvas(GR32.img,S)
+};
+Array.prototype.forEach.call(document.querySelectorAll('canvas[data-src]'), function(cv){ paint(cv, C[cv.getAttribute('data-src')]); });
+
+/* ------------------------------------------------------------ hero animation */
+(function hero(){
+  var HS=150, NF=24, frames=[];
+  for(var f=0; f<NF; f++){ var Rf=render(mixPose(POSE_A,POSE_B,ease(f/(NF-1))),HS); frames.push({n:toCanvas(normalRGBA(Rf),HS), c:toCanvas(rgbRGBA(Rf),HS)}); }
+  paint($('#h-src'), frames[0].c);
+  var hn=$('#h-norm'), hv=$('#h-vid'), lab=$('#h-frame'), btn=$('#h-pause');
+  var idx=0, dir=1, playing=!RM, last=0, hold=0;
+  function show(i){ paint(hn,frames[i].n); paint(hv,frames[i].c); lab.textContent='khung '+String(i+1).padStart(2,'0')+' / '+NF; }
+  show(RM?NF-1:0);
+  if(RM){ btn.textContent='Phát'; }
+  function tick(ts){
+    if(!playing){ return; }
+    if(ts-last>90){ last=ts;
+      if(hold>0){ hold--; } else { idx+=dir; if(idx>=NF-1||idx<=0){ idx=clamp(idx,0,NF-1); dir=-dir; hold=10; } show(idx); }
+    }
+    requestAnimationFrame(tick);
+  }
+  btn.addEventListener('click', function(){ playing=!playing; btn.textContent=playing?'Tạm dừng':'Phát'; if(playing) requestAnimationFrame(tick); });
+  if(playing) requestAnimationFrame(tick);
+})();
+
+/* ------------------------------------------------------------ skeleton / heatmap / normal hand */
+(function compare(){
+  var BS=480, Rb=buildBody(POSE_B), c=Rb.centers.R, J=Rb.joints.R, side=120;
+  var x0=Math.round(c[0]*BS-side/2), y0=Math.round(c[1]*BS-side/2);
+  var Rh=render(POSE_B,BS,{x0:x0,y0:y0,x1:x0+side,y1:y0+side});
+  var full=normalRGBA(Rh), crop=cropRGBA(full,BS,{x0:x0,y0:y0,s:side});
+  paint($('#cmp-norm'), toCanvas(crop,side));
+  function P(p){ return [(p[0]*BS-x0)*220/side, (p[1]*BS-y0)*220/side]; }
+  var fingers=[[J.tb,J.tt]], cols=['#ff5a5a','#ffb347','#e8e84a','#4fe08a','#4db8ff'];
+  for(var i=0;i<4;i++) fingers.push([J.bases[i],J.tips[i]]);
+  // skeleton
+  var cv=$('#cmp-skel'), ctx=cv.getContext('2d'); ctx.fillStyle='#0d0f15'; ctx.fillRect(0,0,220,220);
+  ctx.lineCap='round'; ctx.lineWidth=4;
+  var w=P(J.W), e=P(J.E);
+  ctx.strokeStyle='#9aa0b5'; ctx.beginPath(); ctx.moveTo(e[0],e[1]); ctx.lineTo(w[0],w[1]); ctx.stroke();
+  fingers.forEach(function(f,k){ var a=P(f[0]), b=P(f[1]); ctx.strokeStyle=cols[k];
+    ctx.beginPath(); ctx.moveTo(w[0],w[1]); ctx.lineTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); });
+  ctx.fillStyle='#ffffff';
+  [J.W].concat(fingers.map(function(f){return f[0];}), fingers.map(function(f){return f[1];})).forEach(function(p){ var q=P(p); ctx.beginPath(); ctx.arc(q[0],q[1],4,0,7); ctx.fill(); });
+  // heatmap
+  var pts=[J.W].concat(fingers.map(function(f){return f[0];}), fingers.map(function(f){return f[1];})).map(P);
+  var hc=$('#cmp-heat'), hctx=hc.getContext('2d'), img=hctx.createImageData(220,220), sg=11;
+  var stops=[[0,[10,10,20]],[.35,[92,24,112]],[.68,[218,74,52]],[1,[252,222,96]]];
+  for(var y=0;y<220;y++) for(var x=0;x<220;x++){
+    var v=0; for(var k=0;k<pts.length;k++){ var dx=x-pts[k][0], dy=y-pts[k][1]; v=Math.max(v,Math.exp(-(dx*dx+dy*dy)/(2*sg*sg))); }
+    var s0=stops[0], s1=stops[1]; for(var t=1;t<stops.length;t++){ if(v<=stops[t][0]){ s0=stops[t-1]; s1=stops[t]; break; } }
+    var u=(v-s0[0])/(s1[0]-s0[0]||1), o=(y*220+x)*4;
+    img.data[o]=lerp(s0[1][0],s1[1][0],u); img.data[o+1]=lerp(s0[1][1],s1[1][1],u); img.data[o+2]=lerp(s0[1][2],s1[1][2],u); img.data[o+3]=255;
+  }
+  hctx.putImageData(img,0,0);
+})();
+
+/* ------------------------------------------------------------ sphere */
+(function sphere(){
+  var cv=$('#sphere'), W=cv.width, ctx=cv.getContext('2d'), R0=W*.46, c0=W/2;
+  var data=new Uint8ClampedArray(W*W*4);
+  for(var y=0;y<W;y++) for(var x=0;x<W;x++){
+    var u=(x+.5-c0)/R0, v=(y+.5-c0)/R0, d=u*u+v*v, o=(y*W+x)*4; if(d>1) continue;
+    data[o]=(u+1)*127.5; data[o+1]=(-v+1)*127.5; data[o+2]=(Math.sqrt(1-d)+1)*127.5; data[o+3]=255;
+  }
+  var off=toCanvas(data,W), pu=.42, pv=-.34;
+  function draw(){
+    ctx.clearRect(0,0,W,W); ctx.drawImage(off,0,0);
+    var d=pu*pu+pv*pv, nz=Math.sqrt(Math.max(0,1-d)), px=c0+pu*R0, py=c0+pv*R0;
+    ctx.strokeStyle='#ffffff'; ctx.fillStyle='#ffffff'; ctx.lineWidth=2.5;
+    arrow(ctx,px,py,px+pu*R0*.6,py+pv*R0*.6,9);
+    ctx.beginPath(); ctx.arc(px,py,6,0,7); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='#111'; ctx.stroke();
+    var r=Math.round((pu+1)*127.5), g=Math.round((-pv+1)*127.5), b=Math.round((nz+1)*127.5);
+    $('#r-x').textContent=(pu>=0?'+':'')+pu.toFixed(2);
+    $('#r-y').textContent=(-pv>=0?'+':'')+(-pv).toFixed(2);
+    $('#r-z').textContent='+'+nz.toFixed(2);
+    $('#r-c').textContent=r+', '+g+', '+b;
+    $('#sw').style.background='rgb('+r+','+g+','+b+')';
+  }
+  function setFrom(ev){ var rc=cv.getBoundingClientRect(), u=((ev.clientX-rc.left)/rc.width*W-c0)/R0, v=((ev.clientY-rc.top)/rc.height*W-c0)/R0;
+    var d=Math.hypot(u,v); if(d>.98){ u*=.98/d; v*=.98/d; } pu=u; pv=v; draw(); }
+  cv.addEventListener('pointermove', setFrom);
+  cv.addEventListener('pointerdown', setFrom);
+  cv.addEventListener('keydown', function(e){
+    var m={ArrowLeft:[-.05,0],ArrowRight:[.05,0],ArrowUp:[0,-.05],ArrowDown:[0,.05]}[e.key]; if(!m) return;
+    e.preventDefault(); var u=pu+m[0], v=pv+m[1], d=Math.hypot(u,v); if(d>.98){ u*=.98/d; v*=.98/d; } pu=u; pv=v; draw(); });
+  draw();
+})();
+
+/* ------------------------------------------------------------ RPG figure */
+(function rpg(){
+  var cv=$('#rpg-nt'), ctx=cv.getContext('2d'); paint(cv,C.Nt);
+  var sc=cv.width/S; ctx.lineWidth=2.5;
+  boxesB.forEach(function(b){ ctx.strokeStyle='rgb('+b.col.join(',')+')'; ctx.strokeRect(b.x0*sc,b.y0*sc,b.s*sc,b.s*sc); });
+  var names={face:'Mặt',L:'Tay trái',R:'Tay phải'};
+  var crops=$('#rpg-crops'), priors=$('#rpg-priors');
+  boxesB.forEach(function(b,k){
+    var wrap=document.createElement('div'); wrap.className='stack3'; wrap.style.gap='3px';
+    var t=document.createElement('span'); t.className='tag'; t.innerHTML='<i style="background:rgb('+b.col.join(',')+')"></i>'+names[b.key];
+    var c1=document.createElement('canvas'); c1.className='pic'; c1.width=c1.height=120;
+    paint(c1, toCanvas(cropRGBA(nB,S,b),b.s)); wrap.appendChild(t); wrap.appendChild(c1); crops.appendChild(wrap);
+    var c2=document.createElement('canvas'); c2.className='pic'; c2.width=c2.height=120;
+    paint(c2, toCanvas(monoRGBA(PRIOR.patches[k],b.s,3.6,b.col),b.s)); priors.appendChild(c2);
+    paint($('#rpg-t'+k), toCanvas(monoRGBA(TARGET.patches[k],b.s,3,b.col),b.s));
+  });
+  // illustrative style code: bars coloured with the mean colours of hair, skin, shirt, background in the source photo
+  var sums={}, cnt={};
+  for(var i=0;i<S*S;i++){ var k=RA.id[i], m=k<0?'bg':RA.pre[k].mat==='head'?'skin':RA.pre[k].mat;
+    if(!sums[m]){ sums[m]=[0,0,0]; cnt[m]=0; } sums[m][0]+=rgbA[i*4]; sums[m][1]+=rgbA[i*4+1]; sums[m][2]+=rgbA[i*4+2]; cnt[m]++; }
+  var means=Object.keys(sums).map(function(m){ return sums[m].map(function(v){ return Math.round(v/cnt[m]); }); });
+  var sc2=$('#rpg-style'), x2=sc2.getContext('2d'), nb=16, bw=sc2.width/nb;
+  x2.fillStyle='#0d0f15'; x2.fillRect(0,0,sc2.width,sc2.height);
+  for(var j=0;j<nb;j++){ var col=means[j%means.length], h=(.25+.7*Math.abs(Math.sin(j*1.7+col[0]*.03)))*sc2.height*.85;
+    x2.fillStyle='rgb('+col.join(',')+')'; x2.fillRect(j*bw+3, sc2.height-h-6, bw-6, h); }
+  if(!RM) $('#rpg').classList.add('anim');
+})();
+
+/* ------------------------------------------------------------ Gaussian slider */
+(function gaussDemo(){
+  var sl=$('#sigma'), lab=$('#sigma-v'), cw=$('#g-w'), co=$('#g-out');
+  function upd(){ var s256=+sl.value, sig=s256*S/256;
+    paint(cw,toCanvas(gauss(sig,'w').img,S)); paint(co,toCanvas(gauss(sig,'gr').img,S));
+    lab.textContent='σ = '+s256+' px trên ảnh 256 × 256'; }
+  sl.addEventListener('input',upd); upd();
+})();
+
+/* ------------------------------------------------------------ GRM attention demo */
+(function grm(){
+  var n=16, cell=S/n, feat=[], i, j;
+  for(var cy=0;cy<n;cy++) for(var cx=0;cx<n;cx++){
+    var f=[0,0,0];
+    for(var y=cy*cell;y<(cy+1)*cell;y++) for(var x=cx*cell;x<(cx+1)*cell;x++){ var p=y*S+x; for(var k=0;k<3;k++) f[k]+=GR32.ch[k][p]; }
+    feat.push(f);
+  }
+  var mx=0; feat.forEach(function(f){ mx=Math.max(mx,f[0],f[1],f[2]); }); feat=feat.map(function(f){ return f.map(function(v){ return v/(mx||1); }); });
+  var hc=boxesB[2], sel=Math.floor(hc.cy/cell)*n+Math.floor(hc.cx/cell);
+  var cq=$('#grm-q'), ckv=$('#grm-kv'), qx=cq.getContext('2d'), kx=ckv.getContext('2d'), Wd=cq.width, cs=Wd/n;
+  function draw(){
+    var qi=feat[sel], sx=sel%n, sy=Math.floor(sel/n), sc=[], m=-1e9;
+    for(j=0;j<n*n;j++){ var f=feat[j], dot=qi[0]*f[0]+qi[1]*f[1]+qi[2]*f[2], dx=(j%n)-sx, dy=Math.floor(j/n)-sy;
+      var s=14*dot-(dx*dx+dy*dy)/(2*2.6*2.6); sc.push(s); if(s>m) m=s; }
+    var tot=0; for(j=0;j<sc.length;j++){ sc[j]=Math.exp(sc[j]-m); tot+=sc[j]; }
+    var wmax=0; for(j=0;j<sc.length;j++){ sc[j]/=tot; wmax=Math.max(wmax,sc[j]); }
+    paint(cq,C.GR); qx.strokeStyle='rgba(255,255,255,.14)'; qx.lineWidth=1;
+    for(i=1;i<n;i++){ qx.beginPath(); qx.moveTo(i*cs,0); qx.lineTo(i*cs,Wd); qx.moveTo(0,i*cs); qx.lineTo(Wd,i*cs); qx.stroke(); }
+    qx.strokeStyle='#ffd84d'; qx.lineWidth=4; qx.strokeRect(sx*cs+2,sy*cs+2,cs-4,cs-4);
+    paint(ckv,C.Ist); kx.fillStyle='rgba(10,12,18,.45)'; kx.fillRect(0,0,Wd,Wd);
+    for(j=0;j<sc.length;j++){ var a=Math.pow(sc[j]/wmax,.6); if(a<.04) continue;
+      kx.fillStyle='rgba(255,216,77,'+(a*.85).toFixed(3)+')'; kx.fillRect((j%n)*cs+1,Math.floor(j/n)*cs+1,cs-2,cs-2); }
+    kx.strokeStyle='#ffffff'; kx.lineWidth=3; kx.strokeRect(sx*cs+2,sy*cs+2,cs-4,cs-4);
+  }
+  function pick(ev){ var rc=cq.getBoundingClientRect(), x=Math.floor((ev.clientX-rc.left)/rc.width*n), y=Math.floor((ev.clientY-rc.top)/rc.height*n);
+    var nsel=clamp(y,0,n-1)*n+clamp(x,0,n-1); if(nsel!==sel){ sel=nsel; draw(); } }
+  cq.addEventListener('pointermove',pick); cq.addEventListener('pointerdown',pick);
+  cq.addEventListener('keydown',function(e){ var d={ArrowLeft:-1,ArrowRight:1,ArrowUp:-n,ArrowDown:n}[e.key]; if(d==null) return; e.preventDefault();
+    var x=sel%n, y=Math.floor(sel/n); if(d===-1&&x===0||d===1&&x===n-1) return; sel=clamp(sel+d,0,n*n-1); draw(); });
+  draw();
+})();
+
+/* ------------------------------------------------------------ discriminator */
+(function judge(){
+  var b=boxesB[2];
+  paint($('#d-real'), toCanvas(cropRGBA(rgbB,S,b),b.s));
+  paint($('#d-real-e'), toCanvas(monoRGBA(cropEdge(rgbB,S,b,false),b.s,3),b.s));
+  paint($('#d-fake'), toCanvas(cropRGBA(WP.warped,S,b),b.s));
+  paint($('#d-fake-e'), toCanvas(monoRGBA(cropEdge(WP.warped,S,b,false),b.s,3),b.s));
+  function grid(el){ var cells=[]; for(var i=0;i<36;i++){ var s=document.createElement('span'); el.appendChild(s); cells.push(s);} return cells; }
+  var pr=grid($('#p-real')), pf=grid($('#p-fake'));
+  var seed=7; function rnd(){ seed=(seed*16807)%2147483647; return seed/2147483647; }
+  var realBase=pr.map(function(){ return .72+.24*rnd(); }), fakeBase=pf.map(function(){ return rnd(); });
+  function setVals(p){
+    var sr=0, sf=0;
+    pr.forEach(function(s,i){ var v=clamp(realBase[i]+(RM?0:(rnd()-.5)*.06),0,1); s.style.setProperty('--v',v.toFixed(3)); sr+=v; });
+    pf.forEach(function(s,i){ var v=clamp(lerp(.06,.5,p)+fakeBase[i]*lerp(.22,.34,p)-.1+(RM?0:(rnd()-.5)*.06),0,1); s.style.setProperty('--v',v.toFixed(3)); sf+=v; });
+    $('#v-real').textContent=(sr/36).toFixed(2); $('#v-fake').textContent=(sf/36).toFixed(2);
+    $('#v-epoch').textContent='vòng train '+Math.max(1,Math.round(p*100))+' / 100';
+  }
+  if(RM){ setVals(1); return; }
+  var t0=performance.now(), last=0;
+  function tick(ts){ if(ts-last>140){ last=ts; var p=((ts-t0)/9000)%1.25; setVals(Math.min(1,p)); } requestAnimationFrame(tick); }
+  setVals(0); requestAnimationFrame(tick);
+})();
+
+/* ------------------------------------------------------------ pipeline diagram */
+(function pipeline(){
+  var NS='http://www.w3.org/2000/svg', svg=$('#flow');
+  function el(tag,attrs,parent){ var e=document.createElementNS(NS,tag); for(var k in attrs) e.setAttribute(k,attrs[k]); (parent||svg).appendChild(e); return e; }
+  function label(parent,x,y,str,cls,anchor){
+    var t=el('text',{x:x,y:y,'class':cls,'text-anchor':anchor||'middle'},parent), down=false;
+    str.split(/(_\{[^}]*\})/).forEach(function(part){ if(!part) return;
+      var m=part.match(/^_\{(.*)\}$/);
+      if(m){ el('tspan',{dy:3.5,'font-size':'9'},t).textContent=m[1]; down=true; }
+      else { el('tspan',down?{dy:-3.5}:{},t).textContent=part; down=false; } });
+    return t;
+  }
+  function orth(pts){ var d='M'+pts[0][0]+','+pts[0][1];
+    for(var i=1;i<pts.length-1;i++){ var p0=pts[i-1],p1=pts[i],p2=pts[i+1], l1=Math.hypot(p1[0]-p0[0],p1[1]-p0[1]), l2=Math.hypot(p2[0]-p1[0],p2[1]-p1[1]), r=Math.min(9,l1/2,l2/2);
+      var ax=p1[0]-(p1[0]-p0[0])/l1*r, ay=p1[1]-(p1[1]-p0[1])/l1*r, bx=p1[0]+(p2[0]-p1[0])/l2*r, by=p1[1]+(p2[1]-p1[1])/l2*r;
+      d+=' L'+ax+','+ay+' Q'+p1[0]+','+p1[1]+' '+bx+','+by; }
+    var L=pts[pts.length-1]; return d+' L'+L[0]+','+L[1]; }
+  var COL={img:'var(--c-img)',norm:'var(--c-norm)',edge:'var(--c-edge)',motion:'var(--c-motion)',mix:'var(--c-mix)'};
+  var defs=el('defs',{});
+  Object.keys(COL).forEach(function(k){ var m=el('marker',{id:'ah-'+k,viewBox:'0 0 10 10',refX:'8.5',refY:'5',markerWidth:'7',markerHeight:'7',orient:'auto-start-reverse'},defs);
+    el('path',{d:'M0,0 L10,5 L0,10 z',style:'fill:'+COL[k]},m); });
+
+  var nodes={};
+  function thumb(id,x,y,w,img,name,sym,pos){
+    var g=el('g',{'class':'node','data-id':id}); nodes[id]=g;
+    var im=el('image',{x:x,y:y,width:w,height:w,preserveAspectRatio:'xMidYMid slice'},g); im.setAttribute('href',C[img].toDataURL());
+    el('rect',{x:x,y:y,width:w,height:w,rx:4,'class':'thumbframe'},g);
+    if(pos==='below'){ label(g,x+w/2,y+w+16,name,'t-name'); if(sym) label(g,x+w/2,y+w+30,sym,'t-sym'); }
+    else { label(g,x+w/2,y-8,name+(sym?'  '+sym:''),'t-name'); }
+  }
+  function box(id,x,y,w,h,name,sym){
+    var g=el('g',{'class':'node','data-id':id}); nodes[id]=g;
+    el('rect',{x:x,y:y,width:w,height:h,rx:8,'class':'box'},g);
+    label(g,x+w/2,y+h/2-(sym?3:-4),name,'t-name'); if(sym) label(g,x+w/2,y+h/2+13,sym,'t-sym');
+  }
+  // wires first (so nodes sit on top), in an order that makes the long vertical wire bridge over the others
+  var PATHS=[
+    ['Is_warp','img',[[120,72],[560,72]]],
+    ['Is_re','img',[[120,112],[145,112],[145,170],[175,170]]],
+    ['Nt_re','norm',[[120,262],[160,262],[160,186],[175,186]]],
+    ['Nt_grad','norm',[[120,290],[175,290]]],
+    ['Nt_flow','norm',[[120,318],[140,318],[140,440],[175,440]]],
+    ['Ns_flow','norm',[[120,500],[150,500],[150,456],[175,456]]],
+    ['re_R','edge',[[325,178],[380,178]]],
+    ['grad_GR','edge',[[325,290],[380,290]]],
+    ['flow_F','motion',[[325,440],[345,440],[345,425],[380,425]]],
+    ['flow_O','motion',[[325,456],[360,456],[360,533],[380,533]]],
+    ['R_cat','edge',[[470,178],[690,178],[690,300],[706,300]]],
+    ['GR_enc','edge',[[470,290],[560,290]]],
+    ['Nt_cat','norm',[[120,300],[155,300],[155,352],[720,352],[720,314]]],
+    ['enc_bus','edge',[[620,312],[620,578],[958,578],[958,531]]],
+    ['bus_g1','edge',[[892,578],[892,461]]],
+    ['bus_g2','edge',[[925,578],[925,496]]],
+    ['F_warp','motion',[[470,425],[530,425],[530,96],[560,96]]],
+    ['warp_Ist','img',[[690,80],[730,80]]],
+    ['Ist_cat','img',[[780,130],[780,160],[720,160],[720,286]]],
+    ['cat_gen','mix',[[734,300],[760,300]]],
+    ['gen_Igen','img',[[1000,345],[1030,345]]],
+    ['Ist_mix','img',[[830,100],[1000,100],[1000,176],[1020,176]]],
+    ['Igen_mix','img',[[1075,300],[1075,212]]],
+    ['O_mix','motion',[[425,578],[425,592],[1155,592],[1155,212]]],
+    ['mix_out','img',[[1095,160],[1095,120]]]
+  ];
+  var wires={};
+  PATHS.forEach(function(p){
+    var g=el('g',{'class':'wire','data-id':p[0]}), d=orth(p[2]);
+    el('path',{d:d,'class':'halo'},g);
+    var line=el('path',{d:d,'class':'line',style:'stroke:'+COL[p[1]],'marker-end':'url(#ah-'+p[1]+')'},g);
+    if(p[0]==='Is_re') line.setAttribute('stroke-dasharray','5 4');
+    wires[p[0]]={g:g,line:line,type:p[1],len:0};
+  });
+  // nodes
+  thumb('Is',20,30,100,'Is','Ảnh nguồn','I_{s}','below');
+  thumb('Nt',20,240,100,'Nt','Hướng mặt mới','N_{t}','below');
+  thumb('Ns',20,450,100,'Ns','Hướng mặt cũ','N_{s}','below');
+  box('re',175,150,150,56,'Chuyên gia vùng','RPG · ×3');
+  box('grad',175,262,150,56,'Lấy đường viền','công thức 1–3');
+  box('flow',175,420,150,56,'Đoán chuyển động','TPSMM');
+  thumb('R',380,133,90,'R','Khung gợi ý','R','above');
+  thumb('GR',380,245,90,'GR','Viền theo vùng','G_{R}','above');
+  thumb('F',380,380,90,'F','Luồng','F','above');
+  thumb('O',380,488,90,'O','Mặt nạ','O','above');
+  box('enc',560,268,120,44,'Mã hoá viền','→ X_{g}');
+  box('warp',560,52,130,56,'Kéo ảnh','theo luồng F');
+  thumb('Ist',730,30,100,'Ist','Ảnh đã kéo','I_{s→t}','above');
+  var cat=el('g',{'class':'node','data-id':'cat'}); nodes.cat=cat;
+  el('circle',{cx:720,cy:300,r:13,'class':'box'},cat);
+  [[-5],[0],[5]].forEach(function(o){ el('line',{x1:714,x2:726,y1:300+o[0],y2:300+o[0],style:'stroke:var(--ink-3)','stroke-width':'1.6'},cat); });
+  label(cat,747,290,'ghép','t-sym');
+  // generator
+  var gen=el('g',{'class':'node','data-id':'gen'}); nodes.gen=gen;
+  el('rect',{x:760,y:190,width:240,height:370,rx:12,'class':'genbox'},gen);
+  label(gen,880,212,'Bộ vẽ ảnh','t-name'); label(gen,880,228,'U-Net · 3 khối GRM','t-sym');
+  var bars=[[774,14,290,'bar'],[798,14,220,'bar'],[822,14,150,'bar'],[846,14,100,'bar'],[870,14,150,'bar'],[887,10,150,'grm'],[903,14,220,'bar'],[920,10,220,'grm'],[936,14,290,'bar'],[953,10,290,'grm']];
+  bars.forEach(function(b){ el('rect',{x:b[0],y:385-b[2]/2,width:b[1],height:b[2],rx:3,'class':b[3]},gen); });
+  label(gen,808,551,'nén','t-sym'); label(gen,925,551,'mở rộng','t-sym');
+  thumb('Igen',1030,300,90,'Igen','Ảnh vẽ ra','I_{gen}','below');
+  box('mix',1020,160,150,52,'Trộn theo O','O·I_{s→t} + (1−O)·I_{gen}');
+  thumb('out',1045,20,100,'out','Kết quả','Î_{t}','above');
+  var pk=el('g',{});
+
+  var STEPS=[
+    {n:'Đầu vào', nodes:['Is','Ns','Nt'], paths:[]},
+    {n:'Đoán chuyển động', nodes:['Ns','Nt','flow','F','O'], paths:['Nt_flow','Ns_flow','flow_F','flow_O']},
+    {n:'Kéo ảnh nguồn', nodes:['Is','F','warp','Ist'], paths:['Is_warp','F_warp','warp_Ist']},
+    {n:'Chuyên gia vùng', nodes:['Is','Nt','re','R'], paths:['Is_re','Nt_re','re_R']},
+    {n:'Lấy đường viền', nodes:['Nt','grad','GR','enc','gen'], paths:['Nt_grad','grad_GR','GR_enc','enc_bus','bus_g1','bus_g2']},
+    {n:'Vẽ ảnh', nodes:['Ist','R','Nt','cat','gen','Igen'], paths:['Ist_cat','R_cat','Nt_cat','cat_gen','gen_Igen','enc_bus','bus_g1','bus_g2']},
+    {n:'Trộn', nodes:['Ist','Igen','O','mix','out'], paths:['Ist_mix','Igen_mix','O_mix','mix_out']}
+  ];
+  Object.keys(wires).forEach(function(k){ wires[k].len=wires[k].line.getTotalLength(); });
+
+  var cur=-1, playing=false, timer=null, packets=[], btns=document.querySelectorAll('#steps button');
+  var status=$('#fl-status'), playBtn=$('#fl-play');
+  function setPackets(list){
+    while(pk.firstChild) pk.removeChild(pk.firstChild); packets=[];
+    if(RM) return;
+    list.forEach(function(id){ var w=wires[id], n=Math.max(1,Math.round(w.len/170));
+      for(var i=0;i<n;i++){ var c=el('circle',{r:4.6,style:'fill:'+COL[w.type]+';stroke:var(--surface);stroke-width:1.6'},pk); packets.push({c:c,w:w,ph:i/n}); } });
+  }
+  function setStep(i){
+    cur=i;
+    svg.classList.toggle('focus', i>=0);
+    Object.keys(nodes).forEach(function(k){ nodes[k].classList.toggle('on', i>=0 && STEPS[i].nodes.indexOf(k)>=0); });
+    Object.keys(wires).forEach(function(k){ wires[k].g.classList.toggle('on', i>=0 && STEPS[i].paths.indexOf(k)>=0); });
+    Array.prototype.forEach.call(btns,function(b){ if(+b.dataset.step===i) b.setAttribute('aria-current','step'); else b.removeAttribute('aria-current'); });
+    status.innerHTML = i<0 ? 'Đang xem <b>toàn cảnh</b>' : 'Bước '+(i+1)+' / 7 · <b>'+STEPS[i].n+'</b>';
+    setPackets(i<0 ? Object.keys(wires) : STEPS[i].paths);
+  }
+  function play(on){
+    playing=on; playBtn.textContent=on?'Tạm dừng':'Chạy'; clearInterval(timer);
+    if(on){ if(cur<0||cur>=STEPS.length-1) setStep(0); else setStep(cur); timer=setInterval(function(){ setStep((cur+1)%STEPS.length); }, 5200); }
+  }
+  playBtn.addEventListener('click',function(){ play(!playing); });
+  $('#fl-next').addEventListener('click',function(){ play(false); setStep(cur>=STEPS.length-1?0:cur+1); });
+  $('#fl-prev').addEventListener('click',function(){ play(false); setStep(cur<=0?STEPS.length-1:cur-1); });
+  $('#fl-all').addEventListener('click',function(){ play(false); setStep(-1); });
+  Array.prototype.forEach.call(btns,function(b){ b.addEventListener('click',function(){ play(false); setStep(+b.dataset.step); }); });
+  setStep(-1);
+  var t0=performance.now();
+  function frame(ts){
+    var t=(ts-t0)/1000;
+    for(var i=0;i<packets.length;i++){ var p=packets[i], speed=cur<0?60:120, s=((t*speed/p.w.len)+p.ph)%1, pt=p.w.line.getPointAtLength(s*p.w.len);
+      p.c.setAttribute('cx',pt.x); p.c.setAttribute('cy',pt.y); }
+    requestAnimationFrame(frame);
+  }
+  if(!RM) requestAnimationFrame(frame);
+  if(!RM && 'IntersectionObserver' in window){
+    var started=false, io=new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting && !started){ started=true; play(true); io.disconnect(); } }); },{threshold:.45});
+    io.observe(svg);
+  }
+})();
+})();
+</script>
+
+</body>
+</html>
