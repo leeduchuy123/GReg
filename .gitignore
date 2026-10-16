@@ -1,6 +1,7 @@
 models_smplx_v1_1/
 smplx_mano_flame_correspondences/
-data/
+# preprocessed caches live in <repo>/data/ ; the anchored slash keeps greg/data/ (the package) tracked
+/data/
 outputs/
 __pycache__/
 *.pyc

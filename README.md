@@ -57,7 +57,15 @@ Ablations (Table 2): `--override model.ablation.no_rpg=true`, `model.ablation.no
 
 Local smoke test (CPU, tiny models): `configs/local_debug_*.yaml`, `python -m pytest`.
 
-## Verified so far (2026-10-14, CPU)
+## Verified so far (2026-10-17, CPU)
+
+* `greg/data/` (pkl reader, frame alignment, gradient map, regions, datasets, splits) was rewritten on
+  2026-10-17: the original package had never been committed because `.gitignore`'s `data/` rule also
+  matched it (now `/data/`). The released `.pkl` files hold **CUDA** tensors; the reader maps them to the
+  CPU while unpickling, so preprocessing also works on CPU-only machines.
+* Re-verified end-to-end on 5 real clips (DGS 25/50 fps, GSL with dropped leading frames, LSF, PJM 720p):
+  preprocess → overlay (1.9 px mean joint error @256²) → split → flow → GReg → reconstruction eval →
+  FVD export → cross-person; 20 unit tests pass.
 
 * `.pkl` ↔ video frame alignment rule and per-frame camera (12 clips, all sources).
 * Normal maps overlay the real body like Fig. 1 (`scripts/03_overlay_check.py`, ~2 px joint error at 256²).
