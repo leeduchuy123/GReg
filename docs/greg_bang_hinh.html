@@ -400,7 +400,7 @@ footer{border-top:1px solid var(--line); padding-top:24px; font-size:14px; color
     <h3>Chuyên gia vùng vẽ khung gợi ý</h3>
     <div class="prose">
       <p>Mặt và hai bàn tay chỉ chiếm một phần nhỏ của khung hình. Một bộ vẽ chung cho cả người dễ bỏ qua chúng. GReg giao mỗi vùng cho một mạng riêng, gọi là chuyên gia vùng. Mặt có một chuyên gia. Hai bàn tay dùng chung một chuyên gia.</p>
-      <p>Mỗi chuyên gia là một mạng U-Net nhỏ. Nó nhận vùng cắt từ bản đồ hướng mặt và mã phong cách lấy từ ảnh nguồn. Mã phong cách chỉnh độ mạnh yếu của từng bộ lọc trong mạng, theo cách làm của StyleGAN2. Nhờ đó cùng một bàn tay 3D nhưng nét vẽ hợp với người trong ảnh.</p>
+      <p>Mỗi chuyên gia là một mạng U-Net nhỏ. Nó nhận vùng cắt từ bản đồ hướng mặt (mới) và mã phong cách lấy từ ảnh nguồn. Mã phong cách chỉnh độ mạnh yếu của từng bộ lọc trong mạng, theo cách làm của StyleGAN2. Nhờ đó cùng một bàn tay 3D nhưng nét vẽ hợp với người trong ảnh.</p>
       <p>Khi train, đầu ra của chuyên gia được so với đường viền của đúng vùng đó trong ảnh thật. Phép so này là hàm mất mát L<sub>struct</sub>.</p>
     </div>
     <figure>
