@@ -21,7 +21,7 @@ model:
     multi_mask: false
     dense_motion: {block_expansion: 64, num_blocks: 5, max_features: 1024, scale_factor: 0.25}
   rpg: {channels: [64, 128, 256, 256], share_hand_expert: true}
-  gr: {grm_levels: [32, 64, 128], base: 32, max_channels: 256, heads: 1, zero_init_out: true}
+  gr: {grm_levels: [32, 64, 128], base: 32, max_channels: 256, heads: 1, zero_init_out: true, attn_bf16: true}   # attn_bf16: bf16 attention kernel (speed), rest fp32
   generator: {base: 64, max_channels: 512, num_down: 4, norm: batch}
   disc_base: 64
   disc_layers: 3

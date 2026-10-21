@@ -56,8 +56,10 @@ class GradientEncoder(nn.Module):
 class GRM(nn.Module):
     """Gradient-enhanced Refine Module: cross-attention with gradient-feature queries."""
 
-    def __init__(self, in_channels: int, grad_channels: int, heads: int = 1, zero_init_out: bool = True):
+    def __init__(self, in_channels: int, grad_channels: int, heads: int = 1, zero_init_out: bool = True,
+                 attn_bf16: bool = True):
         super().__init__()
+        self.attn_bf16 = attn_bf16   # attention only (q/k/v cast to bf16 on CUDA): ~2x faster step, the rest stays fp32
         assert in_channels % heads == 0
         self.heads = heads
         self.q = nn.Conv2d(grad_channels, in_channels, 1)
@@ -72,9 +74,13 @@ class GRM(nn.Module):
         B, C, H, W = x.shape
         if grad_feat.shape[-2:] != (H, W):
             grad_feat = F.interpolate(grad_feat, size=(H, W), mode="bilinear", align_corners=False)
-        q = self.q(grad_feat).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2)  # (B, h, N, d)
-        k = self.k(x).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2)
-        v = self.v(x).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2)
-        a = F.scaled_dot_product_attention(q, k, v)                                            # (B, h, N, d)
+        # .contiguous(): a transposed view makes SDPA fall back to the O(N^2)-memory "math" kernel (OOM at 128x128)
+        q = self.q(grad_feat).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2).contiguous()  # (B, h, N, d)
+        k = self.k(x).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2).contiguous()
+        v = self.v(x).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2).contiguous()
+        if self.attn_bf16 and q.is_cuda:
+            a = F.scaled_dot_product_attention(q.bfloat16(), k.bfloat16(), v.bfloat16()).to(x.dtype)
+        else:
+            a = F.scaled_dot_product_attention(q, k, v)                                        # (B, h, N, d)
         a = a.transpose(-1, -2).reshape(B, C, H, W)
         return x + self.out(a)

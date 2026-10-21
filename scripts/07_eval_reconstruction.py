@@ -14,19 +14,16 @@ import argparse
 import csv
 import json
 import sys
-from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
-import torch
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from greg.data.dataset import HamNoSysCache, SequenceDataset, collate_keep_strings, read_split  # noqa: E402
-from greg.data.regions import region_visibility  # noqa: E402
+from greg.data.dataset import read_split  # noqa: E402
+from greg.data.splits import pick_keys  # noqa: E402
 from greg.eval import metrics as M  # noqa: E402
+from greg.eval.evaluate import evaluate_reconstruction  # noqa: E402
 from greg.eval.runner import load_greg, save_frame  # noqa: E402
 from greg.utils.config import get_device  # noqa: E402
 
@@ -38,8 +35,11 @@ def main():
     p.add_argument("--split", default="test")
     p.add_argument("--out", required=True)
     p.add_argument("--source-row", type=int, default=0)
-    p.add_argument("--max-clips", type=int, default=None)
-    p.add_argument("--max-rows", type=int, default=None, help="limit driving rows per clip (smoke tests)")
+    p.add_argument("--max-clips", type=int, default=None, help="random subset of the split (see --subset-seed)")
+    p.add_argument("--subset-seed", type=int, default=0)
+    p.add_argument("--max-rows", type=int, default=None, help="limit driving rows per clip")
+    p.add_argument("--uniform-rows", action="store_true", help="with --max-rows: spread rows over the clip")
+    p.add_argument("--eval-region-size", type=int, default=64, help="box size of the region-L1 metric")
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--num-workers", type=int, default=2)
     p.add_argument("--lpips", action="store_true")
@@ -49,51 +49,31 @@ def main():
 
     device = get_device(args.device)
     model, cfg = load_greg(args.checkpoint, device)
-    keys = read_split(Path(args.cache) / "splits" / f"{args.split}.txt")
-    if args.max_clips:
-        keys = keys[:args.max_clips]
-    cache = HamNoSysCache(args.cache, keys)
-    ds = SequenceDataset(cache, source_row=args.source_row, max_rows=args.max_rows)
-    loader = DataLoader(ds, batch_size=args.batch_size, num_workers=args.num_workers, collate_fn=collate_keep_strings)
+    keys = pick_keys(read_split(Path(args.cache) / "splits" / f"{args.split}.txt"), args.max_clips, args.subset_seed)
     lp = M.LPIPSMetric(device) if args.lpips else None
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    rows = []
-    per_clip = defaultdict(list)
-    size = model.image_size
-    for batch in tqdm(loader):
-        Is = batch["source_image"].to(device)
-        Ns = batch["source_normal"].to(device)
-        Nt = batch["target_normal"].to(device)
-        It = batch["target_image"].to(device)
-        ct = batch["target_centers"].to(device)
-        with torch.no_grad():
-            o = model(Is, Ns, Nt, ct)
-        pred = o["output"].clamp(0, 1)
-        vis = region_visibility(ct, size, size)
-        res = {"l1": M.l1(pred, It), "psnr": M.psnr(pred, It), "ssim": M.ssim(pred, It),
-               "region_l1": M.region_l1(pred, It, o["boxes"], model.region_size, vis),
-               "source_copy_l1": M.l1(Is, It), "warped_l1": M.l1(o["warped"], It)}
-        if lp:
-            res["lpips"] = lp(pred, It)
-        for i in range(Is.shape[0]):
-            key, trow = batch["key"][i], int(batch["target_row"][i])
-            r = {"key": key, "source_row": int(batch["source_row"][i]), "target_row": trow}
-            r.update({k: float(v[i]) for k, v in res.items()})
-            rows.append(r)
-            per_clip[key].append(r)
-            if args.save_frames:
-                save_frame(pred[i], out / "generated" / key / f"{trow:06d}.png")
-                save_frame(It[i], out / "real" / key / f"{trow:06d}.png")
+    bar = tqdm(total=None)
+
+    def save(batch, pred, target):
+        bar.update(1)
+        if args.save_frames:
+            for i in range(pred.shape[0]):
+                trow = int(batch["target_row"][i])
+                save_frame(pred[i], out / "generated" / batch["key"][i] / f"{trow:06d}.png")
+                save_frame(target[i], out / "real" / batch["key"][i] / f"{trow:06d}.png")
+
+    rows, summary = evaluate_reconstruction(
+        model, args.cache, keys, device, batch_size=args.batch_size, num_workers=args.num_workers,
+        source_row=args.source_row, max_rows=args.max_rows, uniform_rows=args.uniform_rows, lpips_metric=lp,
+        eval_region_size=args.eval_region_size, on_batch=save)
+    bar.close()
     with open(out / "per_frame.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)
-    metric_names = [k for k in rows[0] if k not in ("key", "source_row", "target_row")]
-    summary = {f"mean_{k}": float(np.mean([r[k] for r in rows])) for k in metric_names}
-    summary["num_frames"] = len(rows)
-    summary["num_clips"] = len(per_clip)
-    summary["checkpoint"] = str(args.checkpoint)
+    summary.update(checkpoint=str(args.checkpoint), split=args.split, max_clips=args.max_clips,
+                   subset_seed=args.subset_seed, max_rows=args.max_rows, uniform_rows=args.uniform_rows)
     with open(out / "summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
     print(json.dumps(summary, indent=2))

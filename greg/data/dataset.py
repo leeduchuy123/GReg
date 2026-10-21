@@ -173,10 +173,12 @@ class PairDataset(Dataset):
 
 
 class SequenceDataset(Dataset):
-    """Reconstruction protocol: source = ``source_row`` of each clip, target = every other row."""
+    """Reconstruction protocol: source = ``source_row`` of each clip, target = every other row.
+
+    ``max_rows`` limits the targets per clip (first rows, or evenly spread with ``uniform_rows``)."""
 
     def __init__(self, cache: HamNoSysCache, source_row: int = 0, max_rows: Optional[int] = None,
-                 with_parts: bool = False, include_source_row: bool = False):
+                 with_parts: bool = False, include_source_row: bool = False, uniform_rows: bool = False):
         self.cache = cache
         self.with_parts = with_parts
         self.items: List[tuple] = []
@@ -184,8 +186,12 @@ class SequenceDataset(Dataset):
             n = cache.num_rows(key)
             s = min(max(int(source_row), 0), n - 1)
             rows = [t for t in range(n) if include_source_row or t != s]
-            if max_rows:
-                rows = rows[:int(max_rows)]
+            if max_rows and len(rows) > int(max_rows):
+                if uniform_rows:   # evenly spread over the clip (quick validation), not just the first rows
+                    idx = np.linspace(0, len(rows) - 1, int(max_rows)).round().astype(int)
+                    rows = [rows[i] for i in idx]
+                else:
+                    rows = rows[:int(max_rows)]
             self.items += [(key, s, t) for t in rows]
 
     def __len__(self) -> int:

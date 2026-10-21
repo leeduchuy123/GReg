@@ -15,6 +15,8 @@ from greg.models.tpsmm import TPS
 
 def build_pair_loader(cfg: dict, split: str = "train", with_parts: bool = False, seed: int = 0) -> DataLoader:
     data = cfg["data"]
+    if split == "train":   # sweeps train on "train_fit" (train minus the validation clips), final runs on "train"
+        split = data.get("train_split", "train")
     keys = read_split(f"{data['cache']}/splits/{split}.txt")
     cache = HamNoSysCache(data["cache"], keys)
     ds = PairDataset(cache, pairs_per_clip=int(data.get("pairs_per_clip", 1)), seed=seed,
@@ -22,7 +24,7 @@ def build_pair_loader(cfg: dict, split: str = "train", with_parts: bool = False,
     train = cfg["train"]
     return DataLoader(ds, batch_size=int(train["batch_size"]), shuffle=(split == "train"),
                       num_workers=int(train.get("num_workers", 2)), drop_last=(split == "train"),
-                      collate_fn=collate_keep_strings, pin_memory=True,
+                      collate_fn=collate_keep_strings, pin_memory=torch.cuda.is_available(),
                       persistent_workers=int(train.get("num_workers", 2)) > 0)
 
 
@@ -83,6 +85,33 @@ def infinite(loader: DataLoader) -> Iterator:
     while True:
         for b in loader:
             yield b
+
+
+class SpeedMeter:
+    """Seconds / step and peak GPU memory since the last ``read`` (cost measurement for the GPU budget)."""
+
+    def __init__(self, device):
+        self.cuda = torch.device(device).type == "cuda"
+        self.reset()
+
+    def reset(self):
+        import time
+        self.t, self.n = time.perf_counter(), 0
+        if self.cuda:
+            torch.cuda.reset_peak_memory_stats()
+
+    def step(self):
+        self.n += 1
+
+    def read(self) -> dict:
+        import time
+        if self.cuda:
+            torch.cuda.synchronize()
+        dt = time.perf_counter() - self.t
+        out = {"sec_per_step": dt / max(self.n, 1),
+               "vram_gb": torch.cuda.max_memory_allocated() / 2 ** 30 if self.cuda else 0.0}
+        self.reset()
+        return out
 
 
 def count_params(module) -> float:

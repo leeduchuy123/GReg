@@ -52,6 +52,27 @@ python scripts/10_export_fvd_clips.py --eval-dir outputs/greg/eval_recon --out o
 python scripts/08_eval_cross_person.py --checkpoint ... --cache ... --pkl-dir PKLS --smplx-dir models_smplx_v1_1/models --out outputs/greg/eval_cross
 ```
 
+Hyper-parameters the paper leaves open (Hr×Wr, σ, λ's, `detach_prior`): `04_make_splits.py` also writes
+`val.txt` (10 % of the train clips) and `train_fit.txt`; the sweep trains stage 2 on `train_fit` with a short schedule
+(`configs/sweep_greg.yaml`, one stage-1 checkpoint shared by all runs) and ranks the runs on the validation clips:
+
+```bash
+python scripts/11_sweep.py --sweep configs/sweeps/hamnosys_sweep.yaml --flow-checkpoint outputs/flow/checkpoints/epoch_100.pth --out-root outputs/sweep
+```
+
+Training logs `sec_per_step` / `vram_gb` (`logs/loss.csv`) for the GPU budget; `train.val_every` adds a validation curve
+(`logs/val.csv`). Region-L1 is always measured on fixed 64×64 boxes (`--eval-region-size`) so runs with different
+`model.region_size` stay comparable. FVD can be computed in-repo: `python scripts/12_eval_fvd.py --eval-dir ... --i3d i3d_torchscript.pt --bootstrap 10`
+(weights not included; cross-check against the PGMM evaluator first, see `greg/eval/fvd.py`). AKD: `09_eval_akd.py --real-cache DIR`
+reuses the real-frame keypoints between runs.
+
+Visual analysis (look at the errors, not only the numbers):
+`python scripts/13_visualize.py --checkpoint ... --cache ... --split test --out outputs/greg/vis` ranks clips, renders the
+worst / median / best ones as `clip.gif` (N_t | target | output | |error|) plus labelled panels (warping, occlusion O, G_R,
+regional priors, generator output, error map, region close-ups with the RE prior vs target gradient) and writes `report.html`.
+During stage-2 training `train.val_every` also saves `samples/fixed_epXXX.jpg` (the same validation clips every time, so epochs
+can be compared); `08_eval_cross_person.py` writes a `clip.gif` per pair.
+
 Ablations (Table 2): `--override model.ablation.no_rpg=true`, `model.ablation.no_gr=true`,
 `loss.weights.adv=0`, `loss.struct_target=grayscale|rgb`.
 

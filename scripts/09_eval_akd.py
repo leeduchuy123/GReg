@@ -46,6 +46,9 @@ def main():
     p.add_argument("--conf", type=float, default=0.3)
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--max-clips", type=int, default=None)
+    p.add_argument("--real-cache", default=None,
+                   help="dir with <key>.npy HRNet keypoints of the REAL frames, shared between runs "
+                        "(real frames do not depend on the model); reused only if the frame count matches")
     args = p.parse_args()
     from mmpose.apis import init_model
     model = init_model(args.config, args.checkpoint, device=args.device)
@@ -60,7 +63,14 @@ def main():
         gen_paths = sorted((root / "generated" / key).glob("*.png"))
         real_paths = [root / "real" / key / p.name for p in gen_paths]
         g = extract(model, gen_paths, args.image_size)
-        r = extract(model, real_paths, args.image_size)
+        cached = Path(args.real_cache) / f"{key}.npy" if args.real_cache else None
+        if cached is not None and cached.exists() and np.load(cached).shape[0] == len(real_paths):
+            r = np.load(cached)
+        else:
+            r = extract(model, real_paths, args.image_size)
+            if cached is not None:
+                cached.parent.mkdir(parents=True, exist_ok=True)
+                np.save(cached, r)
         np.save(root / "generated" / key / "_keypoints.npy", g)
         np.save(root / "real" / key / "_keypoints.npy", r)
         per_clip[key] = akd(g, r, args.image_size, args.conf)

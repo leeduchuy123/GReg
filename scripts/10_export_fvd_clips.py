@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """Export generated / real sequences as an NPZ compatible with the PGMM repo's
-FVD evaluator (``PGMM/scripts/10_eval_fvd.py``: I3D Kinetics-400, 16 uniformly
+FVD evaluator (``PGMM/scripts/10_eval_fvd.py``; or compute it here with ``scripts/12_eval_fvd.py``: I3D Kinetics-400, 16 uniformly
 sampled frames per clip, NTHWC uint8).
 
     python scripts/10_export_fvd_clips.py --eval-dir outputs/greg/eval_recon --out outputs/greg/fvd_clips.npz
@@ -10,23 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-def uniform_indices(n: int, k: int):
-    if n <= k:
-        return list(range(n)) + [n - 1] * (k - n)
-    return [int(round(i * (n - 1) / (k - 1))) for i in range(k)]
-
-
-def load_clip(dir_: Path, k: int, size: int):
-    paths = sorted(dir_.glob("*.png"))
-    idx = uniform_indices(len(paths), k)
-    frames = [np.asarray(Image.open(paths[i]).convert("RGB").resize((size, size))) for i in idx]
-    return np.stack(frames).astype(np.uint8)
+from greg.eval.fvd import load_clip  # noqa: E402
 
 
 def main():

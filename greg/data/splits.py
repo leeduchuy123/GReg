@@ -33,6 +33,30 @@ def make_random_split(keys: Iterable[str], train_ratio: float = 0.8, seed: int =
     return {"train": sorted(keys[:n_train]), "test": sorted(keys[n_train:])}
 
 
+def make_val_split(train_keys: Iterable[str], val_ratio: float = 0.1, seed: int = 0) -> Dict[str, List[str]]:
+    """Hold out ``val_ratio`` of the *train* clips for hyper-parameter selection.
+
+    Returns ``{"train_fit": [...], "val": [...]}``; the test split is never touched.
+    ``seed + 1`` is used so the shuffle is independent of the train/test one.
+    """
+    keys = sorted(set(train_keys))
+    rng = random.Random(seed + 1)
+    rng.shuffle(keys)
+    n_val = max(1, int(round(len(keys) * float(val_ratio)))) if keys and val_ratio > 0 else 0
+    return {"train_fit": sorted(keys[n_val:]), "val": sorted(keys[:n_val])}
+
+
+def pick_keys(keys: Iterable[str], n: Optional[int], seed: int = 0) -> List[str]:
+    """Deterministic random subset of ``n`` keys (all keys, sorted, if ``n`` is None or too large).
+
+    Sorted keys cluster by corpus (numeric ids = DGS first), so ``keys[:n]`` would be biased.
+    """
+    keys = sorted(set(keys))
+    if not n or n >= len(keys):
+        return keys
+    return sorted(random.Random(seed).sample(keys, n))
+
+
 def write_split(split: Dict[str, List[str]], out_dir: str | Path, info: Optional[dict] = None) -> None:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)

@@ -19,11 +19,15 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from greg.data.splits import pick_keys  # noqa: E402
+from greg.data.dataset import read_split  # noqa: E402
+from greg.eval.evaluate import evaluate_reconstruction  # noqa: E402
+from greg.eval.visualize import fixed_panels  # noqa: E402
 from greg.losses import GRegLoss  # noqa: E402
 from greg.models.discriminator import RegionalDiscriminators  # noqa: E402
 from greg.models.greg import GReg  # noqa: E402
 from greg.models.vgg import PerceptualLoss, VGG19Features  # noqa: E402
-from greg.train_utils import StepLR, batch_to_device, build_pair_loader, count_params, region_weights  # noqa: E402
+from greg.train_utils import SpeedMeter, StepLR, batch_to_device, build_pair_loader, count_params, region_weights  # noqa: E402
 from greg.utils.checkpoint import load_checkpoint, load_module_state, save_checkpoint  # noqa: E402
 from greg.utils.config import apply_overrides, get_device, load_config, save_config, set_seed  # noqa: E402
 from greg.utils.logging import CSVLogger, save_grid  # noqa: E402
@@ -106,9 +110,24 @@ def main():
         step, start_epoch = ck["step"], ck["epoch"] + 1
         print(f"resumed from {args.resume} at epoch {start_epoch}")
     logger = CSVLogger(out_dir / "logs" / "loss.csv",
-                       ["lr", "total", "perceptual", "regional_perceptual", "struct", "adv", "d_total"])
+                       ["lr", "total", "perceptual", "regional_perceptual", "struct", "adv", "d_total", "sec_per_step", "vram_gb"])
     epochs = int(tr["epochs"])
     t0 = time.time()
+    meter = SpeedMeter(device)
+
+    # periodic validation (train.val_every epochs; 0 = off).  Uses splits/<val.split>.txt, a held-out part of
+    # the TRAIN clips (scripts/04_make_splits.py); with data.train_split=train these clips are also trained on.
+    va = tr.get("val", {}) or {}
+    val_every = int(tr.get("val_every", 0))
+    val_keys = None
+    if val_every > 0:
+        vpath = Path(cfg["data"]["cache"]) / "splits" / f"{va.get('split', 'val')}.txt"
+        if vpath.exists():
+            val_keys = pick_keys(read_split(vpath), va.get("max_clips", 60), seed=0)
+        else:
+            print(f"WARNING: {vpath} not found -> validation disabled (run scripts/04_make_splits.py)")
+    val_logger = CSVLogger(out_dir / "logs" / "val.csv",
+                           ["l1", "psnr", "ssim", "region_l1", "warped_l1", "source_copy_l1"]) if val_keys else None
     for epoch in range(start_epoch, epochs):
         loader.dataset.set_epoch(epoch)
         lr = sched_g.set_epoch(epoch)
@@ -137,9 +156,11 @@ def main():
                 losses.update(d_losses)
             scaler.update()
             step += 1
+            meter.step()
             if step % int(tr.get("log_every", 50)) == 0:
                 vals = {k: float(v) for k, v in losses.items()}
                 vals["lr"] = lr
+                vals.update(meter.read())
                 logger.log(step, epoch, vals)
                 print(f"ep {epoch} step {step} " + " ".join(f"{k}={v:.4f}" for k, v in vals.items()) +
                       f" ({(time.time() - t0) / 60:.1f} min)")
@@ -156,11 +177,24 @@ def main():
                  "optimizer_g": opt_g.state_dict(), "optimizer_d": opt_d.state_dict() if opt_d else None,
                  "step": step, "epoch": epoch, "config": cfg}
         save_checkpoint(state, out_dir / "checkpoints" / "last.pth")
+        if val_keys and ((epoch + 1) % val_every == 0 or epoch + 1 == epochs):
+            _, vs = evaluate_reconstruction(model, cfg["data"]["cache"], val_keys, device,
+                                            batch_size=int(va.get("batch_size", 16)), num_workers=int(tr.get("num_workers", 2)),
+                                            max_rows=va.get("max_rows", 8), uniform_rows=True,
+                                            eval_region_size=int(va.get("eval_region_size", 64)))
+            val_logger.log(step, epoch, {k[5:]: v for k, v in vs.items() if k.startswith("mean_")})
+            print(f"[val ep {epoch + 1}] " + " ".join(f"{k[5:]}={v:.4f}" for k, v in vs.items() if k.startswith("mean_")))
+            # the same clips at every validation epoch -> compare the images across epochs
+            fixed_panels(model, cfg["data"]["cache"], val_keys[:int(va.get("fixed_clips", 3))], device,
+                         out_dir / "samples" / f"fixed_ep{epoch + 1:03d}.jpg")
+            meter.reset()
         if (epoch + 1) in set(tr.get("keep_epochs", [20, 40, 60, 80, 100])) or epoch + 1 == epochs:
             save_checkpoint(state, out_dir / "checkpoints" / f"epoch_{epoch + 1:03d}.pth")
         if args.max_steps and step >= args.max_steps:
             break
     logger.close()
+    if val_logger:
+        val_logger.close()
     print("done")
 
 

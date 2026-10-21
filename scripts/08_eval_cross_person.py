@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from greg.data.dataset import HamNoSysCache, read_split  # noqa: E402
 from greg.data.signavatars import ClipAnnotation  # noqa: E402
 from greg.eval.runner import load_greg, save_frame  # noqa: E402
+from greg.eval.visualize import labelled, save_gif, tile_grid, to_pil  # noqa: E402
 from greg.render.body import Camera, SMPLXBody, region_centers_from_joints  # noqa: E402
 from greg.render.normals import NormalRenderer  # noqa: E402
 from greg.utils.config import get_device  # noqa: E402
@@ -46,6 +47,8 @@ def main():
     p.add_argument("--max-rows", type=int, default=None)
     p.add_argument("--shape-from", choices=["source", "driving"], default="source")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--gif-frames", type=int, default=120, help="frames per clip.gif (source | driving normal | warped | output)")
+    p.add_argument("--fps", type=float, default=12.0)
     p.add_argument("--batch", type=int, default=8)
     p.add_argument("--backend", default="torch")
     p.add_argument("--device", default="auto")
@@ -79,6 +82,7 @@ def main():
         Is = src["image"][None].to(device)
         Ns = src["normal"][None].to(device)
         frames = []
+        gif = []
         for i in range(0, len(rows), args.batch):
             rr = rows[i:i + args.batch]
             vec = torch.as_tensor(ann_b.smplx[rr]).clone()
@@ -92,9 +96,15 @@ def main():
                 o = model(Is.expand(len(rr), -1, -1, -1), Ns.expand(len(rr), -1, -1, -1), Nt, ct)
             for j, row in enumerate(rr):
                 save_frame(o["output"][j], out / f"{a}__{b}" / f"{row:06d}.png")
+                if len(gif) < args.gif_frames:
+                    gif.append(tile_grid([[labelled(to_pil(Is[0]), "source (A)"), labelled(to_pil(Nt[j][:3]), "driving N_t (B)"),
+                                           labelled(to_pil(o["warped"][j]), "warped"),
+                                           labelled(to_pil(o["output"][j].clamp(0, 1)), "output")]]))
                 if len(frames) < 6 and (row % max(1, len(rows) // 6) == 0):
                     frames.append([Is[0], Nt[j], o["warped"][j], o["output"][j]])
         save_grid(frames, out / f"{a}__{b}" / "_grid.png")
+        if gif:
+            save_gif(gif, out / f"{a}__{b}" / "clip.gif", args.fps)
         manifest.append({"source": a, "driving": b, "num_frames": len(rows)})
     with open(out / "manifest.json", "w", encoding="utf-8") as f:
         json.dump({"pairs": manifest, "shape_from": args.shape_from, "seed": args.seed}, f, indent=2)

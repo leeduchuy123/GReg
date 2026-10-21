@@ -1,0 +1,13 @@
+# Short stage-2 schedule for hyper-parameter sweeps (scripts/11_sweep.py).
+# Trains on "train_fit" (= train minus the validation clips) so that val.txt stays unseen.
+# The flow estimator is frozen, so every sweep run reuses ONE stage-1 checkpoint.
+inherits: hamnosys_greg.yaml
+output_dir: outputs/sweep/base
+data:
+  train_split: train_fit
+train:
+  epochs: 15
+  milestones: [10, 13]       # same 70% / 90% proportions as the paper's 100-epoch schedule
+  val_every: 5
+  val: {split: val, max_clips: 60, max_rows: 8, batch_size: 16}
+  keep_epochs: [15]

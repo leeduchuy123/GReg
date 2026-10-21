@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from greg.models.tpsmm import FlowEstimator, InpaintingNetwork  # noqa: E402
 from greg.models.vgg import PerceptualLoss, VGG19Features  # noqa: E402
-from greg.train_utils import (StepLR, batch_to_device, build_pair_loader, count_params, dropout_schedule,  # noqa: E402
+from greg.train_utils import (SpeedMeter, StepLR, batch_to_device, build_pair_loader, count_params, dropout_schedule,  # noqa: E402
                               equivariance_loss, warp_loss)
 from greg.utils.checkpoint import load_checkpoint, load_module_state, save_checkpoint  # noqa: E402
 from greg.utils.config import apply_overrides, get_device, load_config, save_config, set_seed  # noqa: E402
@@ -80,9 +80,10 @@ def main():
         opt.load_state_dict(ck["optimizer"])
         step, start_epoch = ck["step"], ck["epoch"] + 1
         print(f"resumed from {args.resume} at epoch {start_epoch}")
-    logger = CSVLogger(out_dir / "logs" / "loss.csv", ["lr", "total", "perceptual", "equivariance", "warp"])
+    logger = CSVLogger(out_dir / "logs" / "loss.csv", ["lr", "total", "perceptual", "equivariance", "warp", "sec_per_step", "vram_gb"])
     epochs = int(tr["epochs"])
     t0 = time.time()
+    meter = SpeedMeter(device)
     for epoch in range(start_epoch, epochs):
         loader.dataset.set_epoch(epoch)
         lr = sched.set_epoch(epoch)
@@ -108,9 +109,10 @@ def main():
             scaler.step(opt)
             scaler.update()
             step += 1
+            meter.step()
             if step % int(tr.get("log_every", 50)) == 0:
                 vals = {k: float(v) for k, v in losses.items()}
-                vals.update({"total": float(total), "lr": lr})
+                vals.update({"total": float(total), "lr": lr, **meter.read()})
                 logger.log(step, epoch, vals)
                 print(f"ep {epoch} step {step} " + " ".join(f"{k}={v:.4f}" for k, v in vals.items()) +
                       f" ({(time.time() - t0) / 60:.1f} min)")

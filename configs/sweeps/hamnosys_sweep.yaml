@@ -1,0 +1,29 @@
+# One-factor-at-a-time sweep around the defaults of configs/hamnosys_greg.yaml.
+#   python scripts/11_sweep.py --sweep configs/sweeps/hamnosys_sweep.yaml \
+#       --flow-checkpoint outputs/flow/checkpoints/epoch_100.pth --out-root outputs/sweep
+# Every run = short training on train_fit + evaluation on the held-out val clips.
+base_config: configs/sweep_greg.yaml
+common: []                    # overrides applied to every run, e.g. [train.batch_size=4]
+eval:                         # evaluation of the finished run (never the test split)
+  split: val
+  max_clips: 100
+  max_rows: 16
+  batch_size: 16
+  lpips: true
+  eval_region_size: 64        # fixed, so region-L1 is comparable across model.region_size values
+rank_metrics: [l1, ssim, lpips, region_l1]   # lower is better except ssim
+runs:
+  base: []
+  # Hr x Wr and sigma (sigma kept = region_size / 2 unless it is the factor under test)
+  region48: [model.region_size=48, model.gaussian_sigma=24]
+  region80: [model.region_size=80, model.gaussian_sigma=40]
+  sigma16: [model.gaussian_sigma=16]
+  sigma64: [model.gaussian_sigma=64]
+  # RE trained only by L_struct (paper: "separately train RE") vs jointly
+  joint_prior: [model.detach_prior=false]
+  # loss weights (defaults: per 1, r-per 1, struct 10, adv 1)
+  struct1: [loss.weights.struct=1]
+  struct30: [loss.weights.struct=30]
+  rper3: [loss.weights.regional_perceptual=3]
+  adv0_1: [loss.weights.adv=0.1]
+  adv3: [loss.weights.adv=3]

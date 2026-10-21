@@ -6,6 +6,7 @@ pillow
 pyyaml
 tqdm
 pandas
+scipy            # FVD (matrix square root)
 smplx            # SMPL-X layer; the model files come from smpl-x.is.tue.mpg.de (registration)
 imageio-ffmpeg   # ffmpeg binary if the system has none (ffprobe is still recommended)
 lpips            # LPIPS metric (optional)

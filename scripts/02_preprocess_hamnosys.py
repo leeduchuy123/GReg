@@ -58,6 +58,9 @@ def parse_args():
     p.add_argument("--batch", type=int, default=16, help="rows rendered per batch")
     p.add_argument("--jpeg-quality", type=int, default=2, help="ffmpeg -q:v for the temp frames")
     p.add_argument("--overwrite", action="store_true")
+    p.add_argument("--shard", default=None, help="I/N: process keys[I::N] only; metadata goes to meta_shardI.json "
+                                                 "(run N processes in parallel, then once with --merge)")
+    p.add_argument("--merge", action="store_true", help="merge meta_shard*.json (and meta.json) into meta.json and exit")
     p.add_argument("--tmp", default=None, help="temp dir for extracted frames (default: system temp)")
     return p.parse_args()
 
@@ -158,11 +161,29 @@ def process_clip(key: str, args, body: SMPLXBody, renderer: NormalRenderer, out:
             "frame_index": ann.frame_index.tolist()}
 
 
+def merge_shards(out: Path) -> None:
+    meta = {"clips": {}, "config": {}}
+    files = ([out / "meta.json"] if (out / "meta.json").exists() else []) + sorted(out.glob("meta_shard*.json"))
+    for f in files:
+        with open(f, encoding="utf-8") as fh:
+            m = json.load(fh)
+        meta["config"] = meta["config"] or m.get("config", {})
+        meta["clips"].update(m["clips"])
+    with open(out / "meta.json", "w", encoding="utf-8") as fh:
+        json.dump(meta, fh)
+    from collections import Counter
+    print(f"merged {len(files)} files: {Counter(v.get('status', '?').split(':')[0] for v in meta['clips'].values())}")
+
+
 def main():
     args = parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    meta_path = out / "meta.json"
+    if args.merge:
+        merge_shards(out)
+        return
+    shard = tuple(int(x) for x in args.shard.split("/")) if args.shard else None
+    meta_path = out / (f"meta_shard{shard[0]}.json" if shard else "meta.json")
     meta = {"clips": {}, "config": vars(args).copy()}
     if meta_path.exists() and not args.overwrite:
         with open(meta_path, encoding="utf-8") as f:
@@ -173,6 +194,8 @@ def main():
         keys = sorted(p.stem for p in Path(args.pkl_dir).glob("*.pkl"))
     if args.limit:
         keys = keys[:args.limit]
+    if shard:
+        keys = keys[shard[0]::shard[1]]
     body = SMPLXBody(args.smplx_dir, device=args.device)
     renderer = NormalRenderer(body, backend=args.backend)
     tmp_root = Path(args.tmp) if args.tmp else Path(tempfile.mkdtemp(prefix="greg_frames_"))
