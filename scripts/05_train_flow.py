@@ -19,7 +19,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from greg.models.tpsmm import FlowEstimator, InpaintingNetwork  # noqa: E402
+from greg.models.tpsmm import FlowEstimator, InpaintingNetwork, resize_occlusion  # noqa: E402
 from greg.models.vgg import PerceptualLoss, VGG19Features  # noqa: E402
 from greg.train_utils import (SpeedMeter, StepLR, batch_to_device, build_pair_loader, count_params, dropout_schedule,  # noqa: E402
                               equivariance_loss, warp_loss)
@@ -117,7 +117,9 @@ def main():
                 print(f"ep {epoch} step {step} " + " ".join(f"{k}={v:.4f}" for k, v in vals.items()) +
                       f" ({(time.time() - t0) / 60:.1f} min)")
             if step % int(tr.get("sample_every", 500)) == 0:
-                rows = [[Is[i], Ns[i], Nt[i], gen["deformed"][i], fo["occlusion"][i].expand(3, -1, -1),
+                # occlusion lives at the dense-motion resolution (scale_factor * H); upsample for the grid
+                occ = resize_occlusion(fo["occlusion"], Is.shape[-2:])
+                rows = [[Is[i], Ns[i], Nt[i], gen["deformed"][i], occ[i].expand(3, -1, -1),
                          gen["prediction"][i], It[i]] for i in range(min(4, Is.shape[0]))]
                 save_grid(rows, out_dir / "samples" / f"step_{step:07d}.png")
             if args.max_steps and step >= args.max_steps:
