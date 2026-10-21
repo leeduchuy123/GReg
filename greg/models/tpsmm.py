@@ -166,12 +166,14 @@ class DenseMotionNetwork(nn.Module):
 
     @staticmethod
     def dropout_softmax(x, p):
-        drop = (torch.rand(x.shape[0], x.shape[1], device=x.device) < (1 - p)).to(x.dtype)
-        drop[..., 0] = 1
-        drop = drop.unsqueeze(-1).unsqueeze(-1)
-        x = x.exp()
-        x = x * drop
-        return x / (x.sum(1, keepdim=True) + 1e-6)
+        """Softmax over the TPS maps, each map except the background (0) dropped with probability p.
+
+        Same distribution as upstream's ``exp(x) * keep / sum``, but dropped logits are masked to -inf
+        before a regular (max-subtracted) softmax: the logits pass 88 later in training, where a raw
+        ``exp`` overflows float32 and inf/inf turns the whole deformation into NaN."""
+        drop = torch.rand(x.shape[0], x.shape[1], device=x.device) >= (1 - p)   # upstream keeps rand < 1 - p
+        drop[:, 0] = False
+        return F.softmax(x.masked_fill(drop[:, :, None, None], float("-inf")), dim=1)
 
     def forward(self, source, kp_driving, kp_source, dropout_flag=False, dropout_p=0.0) -> Dict[str, torch.Tensor]:
         if self.scale_factor != 1:

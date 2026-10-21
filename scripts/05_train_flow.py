@@ -102,6 +102,12 @@ def main():
                 if w_warp > 0:
                     losses["warp"] = w_warp * warp_loss(gen["warped_encoder_maps"], inpaint.encode(It))
                 total = sum(losses.values())
+            if not torch.isfinite(total):
+                # AMP only overflows in the backward; a non-finite loss has already poisoned the BatchNorm
+                # running stats, and letting GradScaler skip step after step collapses its scale until the
+                # weights themselves turn NaN.  Stop here: last.pth holds the last finite epoch.
+                raise SystemExit(f"non-finite loss at epoch {epoch} step {step}: "
+                                 + " ".join(f"{k}={float(v):.4g}" for k, v in losses.items()))
             opt.zero_grad(set_to_none=True)
             scaler.scale(total).backward()
             scaler.unscale_(opt)
@@ -126,6 +132,10 @@ def main():
                 break
         state = {"flow": flow.state_dict(), "inpainting": inpaint.state_dict(), "optimizer": opt.state_dict(),
                  "step": step, "epoch": epoch, "config": cfg}
+        bad = [f"{m}.{k}" for m in ("flow", "inpainting") for k, v in state[m].items()
+               if v.is_floating_point() and not torch.isfinite(v).all()]
+        if bad:   # never overwrite a good last.pth with a corrupted state
+            raise SystemExit(f"non-finite weights after epoch {epoch} ({len(bad)} tensors, e.g. {bad[:3]}); not saved")
         save_checkpoint(state, out_dir / "checkpoints" / "last.pth")
         if (epoch + 1) in set(tr.get("keep_epochs", [20, 40, 60, 80, 100])) or epoch + 1 == epochs:
             save_checkpoint(state, out_dir / "checkpoints" / f"epoch_{epoch + 1:03d}.pth")
