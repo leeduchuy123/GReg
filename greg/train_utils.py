@@ -114,5 +114,35 @@ class SpeedMeter:
         return out
 
 
+class NonFiniteGuard:
+    """Drops an update whose loss or gradient is non-finite instead of letting it reach the optimizer.
+
+    In fp32 nothing else stops a NaN gradient: Adam writes it into every weight and both moments and the
+    run is lost (GradScaler does this skip only under AMP).  A non-finite forward has already updated the
+    BatchNorm / spectral-norm buffers, so ``skip`` restores them from the ``snapshot`` taken before the
+    forward.  ``skip`` returns True once more than ``max_events`` happen within ``window`` steps, i.e. when
+    the run is genuinely diverging rather than hitting a rare spike.
+    """
+
+    def __init__(self, modules, max_events: int = 10, window: int = 1000):
+        self.modules = [m for m in modules if m is not None]
+        self.max_events, self.window = max_events, window
+        self.recent: list = []
+        self.total = 0
+        self._saved = None
+
+    def snapshot(self) -> None:
+        self._saved = [[b.detach().clone() for b in m.buffers()] for m in self.modules]
+
+    def skip(self, step: int) -> bool:
+        with torch.no_grad():
+            for m, saved in zip(self.modules, self._saved):
+                for b, s in zip(m.buffers(), saved):
+                    b.copy_(s)
+        self.total += 1
+        self.recent = [s for s in self.recent if s > step - self.window] + [step]
+        return len(self.recent) > self.max_events
+
+
 def count_params(module) -> float:
     return sum(p.numel() for p in module.parameters()) / 1e6

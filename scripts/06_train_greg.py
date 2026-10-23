@@ -27,7 +27,8 @@ from greg.losses import GRegLoss  # noqa: E402
 from greg.models.discriminator import RegionalDiscriminators  # noqa: E402
 from greg.models.greg import GReg  # noqa: E402
 from greg.models.vgg import PerceptualLoss, VGG19Features  # noqa: E402
-from greg.train_utils import SpeedMeter, StepLR, batch_to_device, build_pair_loader, count_params, region_weights  # noqa: E402
+from greg.train_utils import (NonFiniteGuard, SpeedMeter, StepLR, batch_to_device, build_pair_loader,  # noqa: E402
+                              count_params, region_weights)
 from greg.utils.checkpoint import load_checkpoint, load_module_state, save_checkpoint  # noqa: E402
 from greg.utils.config import apply_overrides, get_device, load_config, save_config, set_seed  # noqa: E402
 from greg.utils.logging import CSVLogger, save_grid  # noqa: E402
@@ -53,6 +54,34 @@ def apply_ablation(model: GReg, cfg: dict):
                 p.requires_grad_(False)
         model.generator.grms.clear()
     return model
+
+
+def _nonfinite(t) -> bool:
+    return isinstance(t, torch.Tensor) and t.is_floating_point() and not bool(torch.isfinite(t).all())
+
+
+def nonfinite_report(kind: str, step: int, epoch: int, batch: dict, out: dict, losses: dict, model, disc) -> str:
+    """Everything needed to find where a NaN/inf came from, printed once before training stops."""
+    lines = [f"NON-FINITE {kind} at epoch {epoch} step {step} (the update was NOT applied)"]
+    lines.append("  losses: " + " ".join(f"{k}={float(v):.4g}" for k, v in losses.items()))
+    for i, key in enumerate(batch["key"]):
+        per = {k: bool(torch.isfinite(batch[k][i]).all()) for k in
+               ("source_image", "source_normal", "target_image", "target_normal", "source_centers", "target_centers",
+                "target_joints") if k in batch}
+        outs = {k: bool(torch.isfinite(v[i]).all()) for k, v in out.items()
+                if isinstance(v, torch.Tensor) and v.is_floating_point() and v.shape[0] == len(batch["key"])}
+        bad_in = [k for k, ok in per.items() if not ok]
+        bad_out = [k for k, ok in outs.items() if not ok]
+        lines.append(f"  sample {i}: clip {key} rows {int(batch['source_row'][i])}->{int(batch['target_row'][i])} "
+                     f"target_centers={batch['target_centers'][i].tolist()} non-finite inputs={bad_in} outputs={bad_out}")
+    for name, mod in (("model", model), ("discriminator", disc)):
+        if mod is None:
+            continue
+        grads = [n for n, p in mod.named_parameters() if p.grad is not None and _nonfinite(p.grad)]
+        state = [n for n, t in mod.state_dict().items() if _nonfinite(t)]
+        lines.append(f"  {name}: {len(grads)} params with non-finite grads {grads[:8]}; "
+                     f"{len(state)} non-finite params/buffers {state[:8]}")
+    return "\n".join(lines)
 
 
 def main():
@@ -110,7 +139,23 @@ def main():
         step, start_epoch = ck["step"], ck["epoch"] + 1
         print(f"resumed from {args.resume} at epoch {start_epoch}")
     logger = CSVLogger(out_dir / "logs" / "loss.csv",
-                       ["lr", "total", "perceptual", "regional_perceptual", "struct", "adv", "d_total", "sec_per_step", "vram_gb"])
+                       ["lr", "total", "perceptual", "regional_perceptual", "struct", "adv", "d_total", "g_gradnorm",
+                        "d_gradnorm", "amp_scale", "skipped", "sec_per_step", "vram_gb"])
+    guard = NonFiniteGuard([model, disc])
+
+    def drop(kind, report_losses, report_model, report_disc):
+        """Discard this iteration's non-finite update (reads step/epoch/batch/out of the training loop)."""
+        # report first (it lists the parameters holding non-finite gradients), then discard them
+        msg = nonfinite_report(kind, step, epoch, batch, out, report_losses, report_model, report_disc) \
+            if guard.total < 3 else f"NON-FINITE {kind} at epoch {epoch} step {step}: update skipped"
+        opt_g.zero_grad(set_to_none=True)
+        if opt_d:
+            opt_d.zero_grad(set_to_none=True)
+        diverging = guard.skip(step)
+        print(f"{msg}\n  skipped updates so far: {guard.total}", flush=True)
+        if diverging:
+            raise SystemExit(f"more than {guard.max_events} non-finite updates within {guard.window} steps "
+                             f"(epoch {epoch} step {step}): the run is diverging, stopping")
     epochs = int(tr["epochs"])
     t0 = time.time()
     meter = SpeedMeter(device)
@@ -139,22 +184,52 @@ def main():
             Is, It = batch["source_image"], batch["target_image"]
             Ns, Nt = batch["source_normal"], batch["target_normal"]
             rw = region_weights(batch, model.image_size)
+            guard.snapshot()
             with torch.autocast(device.type, enabled=scaler.is_enabled()):
                 out = model(Is, Ns, Nt, batch["target_centers"])
                 losses = criterion.generator_loss(out, It, disc, rw)
+            # Without AMP nothing skips a non-finite update: one NaN gradient goes straight into Adam and
+            # every weight and moment turns NaN (that is what killed the sigma16/struct1 sweep runs).  The
+            # guard drops such updates the way GradScaler does under AMP; with AMP, GradScaler handles
+            # overflowing gradients itself, but its unscale multiplies by inf unflagged once the scale
+            # collapses below ~3e-39, so stop on scale < 1.
+            if not torch.isfinite(losses["total"]):
+                drop("loss", losses, model, disc)
+                continue
             opt_g.zero_grad(set_to_none=True)
             scaler.scale(losses["total"]).backward()
             scaler.unscale_(opt_g)
-            torch.nn.utils.clip_grad_norm_(g_params, max_norm=10.0, norm_type=float("inf"))
+            g_norm = torch.nn.utils.clip_grad_norm_(g_params, max_norm=10.0, norm_type=float("inf"))
+            if not scaler.is_enabled() and not torch.isfinite(g_norm):
+                drop("generator gradient", losses, model, None)
+                continue
             scaler.step(opt_g)
             if disc is not None:
                 with torch.autocast(device.type, enabled=scaler.is_enabled()):
                     d_losses = criterion.discriminator_loss(out, It, disc)
-                opt_d.zero_grad(set_to_none=True)
-                scaler.scale(d_losses["d_total"]).backward()
-                scaler.step(opt_d)
-                losses.update(d_losses)
+                d_ok = bool(torch.isfinite(d_losses["d_total"]))
+                if d_ok:
+                    opt_d.zero_grad(set_to_none=True)
+                    scaler.scale(d_losses["d_total"]).backward()
+                    scaler.unscale_(opt_d)
+                    d_norm = torch.stack([p.grad.detach().abs().max() for p in disc.parameters()
+                                          if p.grad is not None]).max()
+                    d_ok = scaler.is_enabled() or bool(torch.isfinite(d_norm))
+                    losses["d_gradnorm"] = d_norm
+                if d_ok:
+                    scaler.step(opt_d)
+                    losses.update(d_losses)
+                else:   # the generator step of this iteration is kept, only the discriminator update is dropped
+                    drop("discriminator loss/gradient", {**losses, **d_losses}, None, disc)
+                    losses.pop("d_gradnorm", None)
+            losses["g_gradnorm"] = g_norm
+            losses["skipped"] = torch.tensor(float(guard.total))
             scaler.update()
+            if scaler.is_enabled():
+                losses["amp_scale"] = torch.tensor(scaler.get_scale())
+                if scaler.get_scale() < 1.0:
+                    raise SystemExit(f"GradScaler scale collapsed to {scaler.get_scale():.3g} at epoch {epoch} "
+                                     f"step {step}: gradients keep overflowing; stopping before weights go NaN")
             step += 1
             meter.step()
             if step % int(tr.get("log_every", 50)) == 0:
@@ -176,6 +251,9 @@ def main():
         state = {"model": model.state_dict(), "discriminator": disc.state_dict() if disc else None,
                  "optimizer_g": opt_g.state_dict(), "optimizer_d": opt_d.state_dict() if opt_d else None,
                  "step": step, "epoch": epoch, "config": cfg}
+        bad = [f"{m}.{k}" for m in ("model", "discriminator") if state[m] for k, v in state[m].items() if _nonfinite(v)]
+        if bad:   # never overwrite a good last.pth with a corrupted state
+            raise SystemExit(f"non-finite weights after epoch {epoch} ({len(bad)} tensors, e.g. {bad[:3]}); not saved")
         save_checkpoint(state, out_dir / "checkpoints" / "last.pth")
         if val_keys and ((epoch + 1) % val_every == 0 or epoch + 1 == epochs):
             _, vs = evaluate_reconstruction(model, cfg["data"]["cache"], val_keys, device,
