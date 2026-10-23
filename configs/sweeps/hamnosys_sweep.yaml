@@ -27,3 +27,6 @@ runs:
   rper3: [loss.weights.regional_perceptual=3]
   adv0_1: [loss.weights.adv=0.1]
   adv3: [loss.weights.adv=3]
+  # GRM with QK-LayerNorm (rper3 diverged without it: GRM@32 attention logits ~1e5-1e6); base_qknorm is its control
+  base_qknorm: [model.gr.qk_norm=true]
+  rper3_qknorm: [loss.weights.regional_perceptual=3, model.gr.qk_norm=true]

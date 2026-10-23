@@ -57,7 +57,7 @@ class GRM(nn.Module):
     """Gradient-enhanced Refine Module: cross-attention with gradient-feature queries."""
 
     def __init__(self, in_channels: int, grad_channels: int, heads: int = 1, zero_init_out: bool = True,
-                 attn_bf16: bool = True):
+                 attn_bf16: bool = True, qk_norm: bool = False):
         super().__init__()
         self.attn_bf16 = attn_bf16   # attention only (q/k/v cast to bf16 on CUDA): ~2x faster step, the rest stays fp32
         assert in_channels % heads == 0
@@ -69,6 +69,14 @@ class GRM(nn.Module):
         if zero_init_out:
             nn.init.zeros_(self.out.weight)
             nn.init.zeros_(self.out.bias)
+        # Decision (not in Eq. 4): optional QK-LayerNorm.  The gradient encoder has no normalisation, so the
+        # query scale follows its activations; at 32x32 they grew until |q.k|/sqrt(C) reached ~1e4-1e6, the
+        # softmax went one-hot and the backward into the gradient encoder exploded (sweep run rper3).  A
+        # per-token LayerNorm on q and k bounds the logits to ~sqrt(d) times the learned gains.
+        self.qk_norm = qk_norm
+        if qk_norm:
+            self.q_norm = nn.LayerNorm(in_channels // heads)
+            self.k_norm = nn.LayerNorm(in_channels // heads)
 
     def forward(self, x: torch.Tensor, grad_feat: torch.Tensor) -> torch.Tensor:
         B, C, H, W = x.shape
@@ -78,6 +86,8 @@ class GRM(nn.Module):
         q = self.q(grad_feat).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2).contiguous()  # (B, h, N, d)
         k = self.k(x).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2).contiguous()
         v = self.v(x).view(B, self.heads, C // self.heads, H * W).transpose(-1, -2).contiguous()
+        if self.qk_norm:
+            q, k = self.q_norm(q), self.k_norm(k)
         if self.attn_bf16 and q.is_cuda:
             a = F.scaled_dot_product_attention(q.bfloat16(), k.bfloat16(), v.bfloat16()).to(x.dtype)
         else:

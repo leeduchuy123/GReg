@@ -40,7 +40,7 @@ class GeometryAwareGenerator(nn.Module):
     def __init__(self, in_channels: int = 9, out_channels: int = 3, base: int = 64, max_channels: int = 512,
                  num_down: int = 4, image_size: int = 256, grm_levels: Sequence[int] = (32, 64, 128),
                  grad_channels: Dict[int, int] | None = None, grm_heads: int = 1, norm: str = "batch",
-                 zero_init_grm: bool = True, grm_attn_bf16: bool = True):
+                 zero_init_grm: bool = True, grm_attn_bf16: bool = True, grm_qk_norm: bool = False):
         super().__init__()
         self.image_size = image_size
         chs = [min(base * (2 ** i), max_channels) for i in range(num_down + 1)]
@@ -57,7 +57,7 @@ class GeometryAwareGenerator(nn.Module):
         for res, ch in zip(self.dec_res, [chs[i] for i in range(num_down)][::-1]):
             if res in grm_levels:
                 gc = grad_channels.get(res, ch)
-                self.grms[str(res)] = GRM(ch, gc, grm_heads, zero_init_grm, grm_attn_bf16)
+                self.grms[str(res)] = GRM(ch, gc, grm_heads, zero_init_grm, grm_attn_bf16, grm_qk_norm)
         self.head = nn.Sequential(nn.Conv2d(chs[0], chs[0], 3, padding=1), nn.LeakyReLU(0.2),
                                   nn.Conv2d(chs[0], out_channels, 7, padding=3))
 
