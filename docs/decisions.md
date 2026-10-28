@@ -78,6 +78,18 @@ HRNet-W32 COCO-WholeBody through MMPose with the full-frame box, exactly like th
 (`scripts/09_eval_akd.py`). AKD = mean Euclidean distance of face (23–90) and hand (91–132)
 keypoints normalised by the image size, counted where the real-frame confidence ≥ 0.3.
 
+## 8. Fade-in / fade-out frames (GSL)
+
+The Dicta-Sign Greek (GSL) videos fade in from black and out to black, and SignAvatars'
+`total_valid_index` keeps those frames. In the first full run the reconstruction source (row 0) of
+59 % of the GSL test clips was almost black, so the whole clip was regenerated from a dark image:
+GSL L1 0.076 vs 0.014–0.018 for the other sources (14 % of the test frames, but most of the error).
+`scripts/02b_mark_valid_rows.py` stores `valid_range` per clip (leading / trailing rows darker than
+0.9 × the clip median brightness; rows in the middle of a clip are never dropped), and
+`HamNoSysCache.valid_rows` restricts training pairs, the reconstruction source (first frame after
+the fade-in) and the evaluated targets to it. No other source is affected (checked by the script).
+The paper does not say how it handled this, so this is a protocol choice to report.
+
 ## Other
 
 * Image-level L1/PSNR/SSIM/LPIPS and region-level L1 in `greg/eval/metrics.py`; FVD through the

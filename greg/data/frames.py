@@ -29,6 +29,28 @@ def ffmpeg_rate_args(fps: float) -> List[str]:
     return ["-r", str(TARGET_FPS)] if float(fps) > FPS_RESAMPLE_ABOVE else []
 
 
+FADE_RATIO = 0.9
+
+
+def fade_trim(brightness: np.ndarray, ratio: float = FADE_RATIO) -> tuple:
+    """(first, last) inclusive range of the usable rows of a clip, from the mean brightness of each row.
+
+    The GSL (Dicta-Sign Greek) videos fade in from black and out to black, and ``total_valid_index``
+    keeps those frames: the first row is almost black, so it is useless as the reconstruction source
+    and as a training target.  Leading / trailing rows darker than ``ratio`` x the clip median are
+    trimmed; rows in the middle of a clip are never dropped (a dark hand passing the camera is motion,
+    not a fade).  Clips without fades keep every row.
+    """
+    b = np.asarray(brightness, dtype=np.float64)
+    if b.size == 0:
+        return 0, -1
+    ok = b >= ratio * float(np.median(b))
+    if not ok.any():
+        return 0, b.size - 1
+    idx = np.flatnonzero(ok)
+    return int(idx[0]), int(idx[-1])
+
+
 def check_alignment(num_frames: int, frame_index: np.ndarray) -> str:
     """Classify how the ``.pkl`` rows map onto ``num_frames`` extracted frames.
 

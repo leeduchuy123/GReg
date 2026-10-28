@@ -1,6 +1,6 @@
 #!/bin/bash
 # Overnight pipeline on a vast.ai instance (resume-safe: every stage leaves /workspace/state/<stage>.done).
-#   fetch -> preprocess (sharded) -> splits -> overlay check -> stage 1 (flow) -> hyper-parameter sweep (stage 2, short)
+#   fetch -> preprocess (sharded) -> fade trimming -> splits -> overlay check -> stage 1 (flow) -> hyper-parameter sweep (stage 2, short)
 # Layout: /workspace/GReg (code), /workspace/data/raw/{pkls,videos,smplx_dl}, /workspace/outputs, /workspace/state.
 # Inputs come from Google Drive via scripts/vast/fetch_data.sh, results are mirrored back by scripts/vast/sync_loop.sh
 # (Drive paths for both in scripts/vast/drive.env).
@@ -50,6 +50,7 @@ sweep() {
 
 stage fetch bash scripts/vast/fetch_data.sh || exit 1
 stage preprocess preprocess || exit 1
+stage validrows python scripts/02b_mark_valid_rows.py --cache $CACHE --workers $(nproc) || exit 1
 stage splits python scripts/04_make_splits.py --cache $CACHE --seed 0 || exit 1
 stage overlay python scripts/03_overlay_check.py --cache $CACHE --pkl-dir $PKL --out $OUT/overlay --num 12 || true
 stage flow flow || exit 1

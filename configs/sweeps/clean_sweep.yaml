@@ -1,0 +1,28 @@
+# Second sweep, on the fade-trimmed data (docs/decisions.md Sec. 8) with the flow retrained on it.
+#   python scripts/11_sweep.py --sweep configs/sweeps/clean_sweep.yaml \
+#       --flow-checkpoint outputs/flow/checkpoints/epoch_100.pth --out-root outputs/sweep_clean
+# Starting point = the winner of the first sweep (rper3_qknorm).  "combo" stacks the one-factor winners
+# of the first sweep (sigma64, region80, joint_prior, adv3, struct30), never tested together; the other
+# runs vary the loss balance (sharpness / LPIPS) and the batch size on top of it.
+base_config: configs/sweep_greg.yaml
+common: [model.gr.qk_norm=true, loss.weights.regional_perceptual=3]
+eval:
+  split: val
+  max_clips: 100
+  max_rows: 16
+  batch_size: 16
+  lpips: true
+  eval_region_size: 64
+rank_metrics: [l1, ssim, lpips, region_l1]
+runs:
+  ref: []
+  combo: [model.gaussian_sigma=64, model.region_size=80, model.detach_prior=false, loss.weights.adv=3,
+          loss.weights.struct=30]
+  combo_hinge: [model.gaussian_sigma=64, model.region_size=80, model.detach_prior=false, loss.weights.adv=3,
+                loss.weights.struct=30, loss.gan_type=hinge]
+  combo_per2: [model.gaussian_sigma=64, model.region_size=80, model.detach_prior=false, loss.weights.adv=3,
+               loss.weights.struct=30, loss.weights.perceptual=2]
+  combo_lrd: [model.gaussian_sigma=64, model.region_size=80, model.detach_prior=false, loss.weights.adv=3,
+              loss.weights.struct=30, train.lr_d=1.0e-4]
+  combo_bs8: [model.gaussian_sigma=64, model.region_size=80, model.detach_prior=false, loss.weights.adv=3,
+              loss.weights.struct=30, train.batch_size=8]

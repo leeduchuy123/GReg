@@ -180,7 +180,10 @@ def fixed_panels(model, cache_root, keys: Sequence[str], device, path: str | Pat
     panels = []
     cache = HamNoSysCache(cache_root, list(keys))
     for key in keys:
-        mid = min(max(cache.num_rows(key) // 2, 1), cache.num_rows(key) - 1)
+        valid = cache.valid_rows(key)
+        if len(valid) < 2:
+            continue
+        mid = valid[max(len(valid) // 2, 1)]
         f = render_clip(model, cache_root, key, device, source_row=source_row, rows=[mid])[0]
         o = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in f["out"].items()}
         vis = region_visibility(f["centers"][None], model.image_size, model.image_size)[0].tolist()

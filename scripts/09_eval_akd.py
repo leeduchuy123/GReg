@@ -4,7 +4,8 @@ PGMM repo (``scripts/03_extract_hrnet_pose.py``): full-frame box, no detector.
 
 Input: the ``generated/`` and ``real/`` trees written by ``07_eval_reconstruction.py --save-frames``.
 
-    pip install openmim mmengine==0.10.7 mmcv-lite==2.1.0 mmdet==3.3.0 mmpose==1.1.0 xtcocotools
+    pip install openmim mmengine==0.10.7 mmcv-lite==2.1.0 mmdet==3.3.0 mmpose==1.1.0 xtcocotools "numpy<2"
+    (separate venv: the xtcocotools wheel is built against numpy 1.x and fails to import under numpy 2)
     wget https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_wholebody_256x192-853765cd_20200918.pth
     python scripts/09_eval_akd.py --eval-dir outputs/greg/eval_recon --config <mmpose cfg> --checkpoint <pth>
 """

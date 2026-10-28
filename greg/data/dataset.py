@@ -76,6 +76,12 @@ class HamNoSysCache:
     def num_rows(self, key: str) -> int:
         return int(self.meta[key]["num_rows"])
 
+    def valid_rows(self, key: str) -> List[int]:
+        """Rows usable as source / target: ``valid_range`` from ``scripts/02b_mark_valid_rows.py`` (fade-in /
+        fade-out trimmed), or every row for caches written before that step."""
+        first, last = self.meta[key].get("valid_range", [0, self.num_rows(key) - 1])
+        return list(range(int(first), int(last) + 1))
+
     def image_size(self, key: Optional[str] = None) -> int:
         k = key or self.keys[0]
         return int(self.meta[k]["crop"]["size"])
@@ -146,7 +152,7 @@ class PairDataset(Dataset):
         self.seed = int(seed)
         self.with_parts = with_parts
         self.min_gap = max(0, int(min_gap))
-        self.keys = [k for k in cache.keys if cache.num_rows(k) >= 2]
+        self.keys = [k for k in cache.keys if len(cache.valid_rows(k)) >= 2]
         self.epoch = 0
 
     def set_epoch(self, epoch: int) -> None:
@@ -156,14 +162,15 @@ class PairDataset(Dataset):
         return len(self.keys) * self.pairs_per_clip
 
     def _draw(self, key: str, rng: random.Random) -> tuple:
-        n = self.cache.num_rows(key)
+        rows = self.cache.valid_rows(key)
+        n = len(rows)
         gap = min(self.min_gap, n - 1)
         for _ in range(50):
             s, t = rng.randrange(n), rng.randrange(n)
             if s != t and abs(s - t) >= gap:
-                return s, t
+                return rows[s], rows[t]
         s = rng.randrange(n)
-        return s, (s + max(gap, 1)) % n
+        return rows[s], rows[(s + max(gap, 1)) % n]
 
     def __getitem__(self, index: int) -> dict:
         key = self.keys[index % len(self.keys)]
@@ -175,6 +182,8 @@ class PairDataset(Dataset):
 class SequenceDataset(Dataset):
     """Reconstruction protocol: source = ``source_row`` of each clip, target = every other row.
 
+    Rows are counted among the clip's valid rows (``HamNoSysCache.valid_rows``): ``source_row=0`` is the first
+    frame after a fade-in, and faded rows are never targets.  Without fades this is the plain row index.
     ``max_rows`` limits the targets per clip (first rows, or evenly spread with ``uniform_rows``)."""
 
     def __init__(self, cache: HamNoSysCache, source_row: int = 0, max_rows: Optional[int] = None,
@@ -183,9 +192,11 @@ class SequenceDataset(Dataset):
         self.with_parts = with_parts
         self.items: List[tuple] = []
         for key in cache.keys:
-            n = cache.num_rows(key)
-            s = min(max(int(source_row), 0), n - 1)
-            rows = [t for t in range(n) if include_source_row or t != s]
+            valid = cache.valid_rows(key)
+            if not valid:
+                continue
+            s = valid[min(max(int(source_row), 0), len(valid) - 1)]
+            rows = [t for t in valid if include_source_row or t != s]
             if max_rows and len(rows) > int(max_rows):
                 if uniform_rows:   # evenly spread over the clip (quick validation), not just the first rows
                     idx = np.linspace(0, len(rows) - 1, int(max_rows)).round().astype(int)
