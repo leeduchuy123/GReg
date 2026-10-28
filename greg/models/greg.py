@@ -56,7 +56,8 @@ class GReg(nn.Module):
             max_channels=int(gen.get("max_channels", 512)), num_down=int(gen.get("num_down", 4)),
             image_size=self.image_size, grm_levels=levels, grad_channels=self.gradient_encoder.channels,
             grm_heads=int(gr.get("heads", 1)), norm=gen.get("norm", "batch"),
-            zero_init_grm=bool(gr.get("zero_init_out", True)), grm_attn_bf16=bool(gr.get("attn_bf16", True)))
+            zero_init_grm=bool(gr.get("zero_init_out", True)), grm_attn_bf16=bool(gr.get("attn_bf16", True)),
+            grm_qk_norm=bool(gr.get("qk_norm", False)))
         self.flow_frozen = False
 
     # ----------------------------------------------------------------- flow control
