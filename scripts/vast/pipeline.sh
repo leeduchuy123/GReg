@@ -18,8 +18,13 @@ SMPLX=$RAW/smplx_dl/models
 CACHE=/workspace/data/hamnosys_cache
 OUT=/workspace/outputs
 ST=/workspace/state
-SHARDS=${SHARDS:-14}
+# every preprocessing shard renders on the GPU (~0.6 GB each): 28 shards on a 16 GB card ran out of memory and
+# 94% of the clips failed, so the default is derived from the GPU memory (24 GB -> 14 as before, 16 GB -> 8)
+GPU_GB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | awk '{print int($1/1024)}')
+SHARDS=${SHARDS:-$(( ${GPU_GB:-24} * 10 / 17 < 14 ? ${GPU_GB:-24} * 10 / 17 : 14 ))}
 MESH_SHARDS=${MESH_SHARDS:-4}
+WORKERS=${WORKERS:-8}            # DataLoader workers of the stage-2 runs (4 left the GPU idle on a busy host)
+export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 HP_SWEEP=${HP_SWEEP:-0}
 TRAINED_FLOW=$OUT/flow/checkpoints/epoch_100.pth
 FLOW_CKPT=${FLOW_CKPT:-$TRAINED_FLOW}
@@ -43,6 +48,16 @@ preprocess() {
     done
     local rc=0; for p in "${pids[@]}"; do wait $p || rc=1; done
     python scripts/02_preprocess_hamnosys.py --pkl-dir $PKL --video-dir $VID --out $CACHE --smplx-dir $SMPLX --merge
+    # 02_preprocess records a failing clip and goes on; a run on a fraction of the data must not pass silently
+    python - "$CACHE/meta.json" <<'PYEOF' || return 1
+import collections, json, sys
+clips = json.load(open(sys.argv[1]))["clips"]
+st = collections.Counter(v.get("status", "?").split(":")[0] for v in clips.values())
+err = st.get("error", 0)
+print(f"preprocess check: {dict(st)}")
+if err > 0.02 * len(clips):
+    sys.exit(f"{err}/{len(clips)} clips failed (see meta.json 'error: ...' entries and logs/pre_shard*.log)")
+PYEOF
     return $rc
 }
 
@@ -79,7 +94,7 @@ diag_e0() {   # E0: is the warp the bottleneck? TPSMM vs mesh warp on the visibl
 
 ablation() {  # base / A1 / B1 / A1+B1 (+2 secondary), short schedule, same seed
     python scripts/11_sweep.py --sweep configs/sweeps/a1_b1_ablation.yaml --flow-checkpoint $FLOW_CKPT \
-        --out-root $OUT/ablation_a1b1 --cache $CACHE --common model.flow.smplx_dir=$SMPLX
+        --out-root $OUT/ablation_a1b1 --cache $CACHE --common model.flow.smplx_dir=$SMPLX train.num_workers=$WORKERS
 }
 
 visualize() {  # clip.gif (N_t | target | output | |error|) + labelled panels + report.html per run; the same
