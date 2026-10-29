@@ -70,7 +70,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     manifest = []
     for a, b in tqdm(pairs):
-        src = cache.load_row(a, args.source_row)
+        src = cache.load_row(a, args.source_row, with_mesh=model.uses_mesh)
         ann_a = ClipAnnotation.from_pkl(Path(args.pkl_dir) / f"{a}.pkl", a)
         ann_b = ClipAnnotation.from_pkl(Path(args.pkl_dir) / f"{b}.pkl", b)
         crop = cache.meta[a]["crop"]
@@ -89,11 +89,20 @@ def main():
             # keep A's camera translation so the body stays where A's body is
             vec[:, 179:182] = torch.as_tensor(ann_a.smplx[args.source_row, 179:182])
             cam = Camera(cam_a.focal.expand(len(rr), -1), cam_a.princpt.expand(len(rr), -1), vec[:, 179:182])
-            r = renderer.render(vec, cam, size, size, betas_override=betas_a if args.shape_from == "source" else None)
+            betas_t = betas_a if args.shape_from == "source" else None
+            r = renderer.render(vec, cam, size, size, betas_override=betas_t, keep_fragments=model.uses_mesh)
             Nt = r.normal.to(device)
             ct = region_centers_from_joints(r.joints_2d).to(device)
+            extra = {"joints_target": r.joints_2d.to(device)}
+            if model.uses_mesh:   # A1: correspondence between A's source mesh and the re-posed target mesh
+                n = len(rr)
+                rep = lambda t: t[None].expand(n, *t.shape).to(device)   # noqa: E731
+                extra["geometry"] = model.mesh_correspondence()(
+                    rep(src["smplx"]), rep(src["focal"]), rep(src["princpt"]), rep(src["faces"]),
+                    vec.to(device), cam.focal.to(device), cam.princpt.to(device), r.frag.face_idx.to(device),
+                    betas_override_t=betas_t)
             with torch.no_grad():
-                o = model(Is.expand(len(rr), -1, -1, -1), Ns.expand(len(rr), -1, -1, -1), Nt, ct)
+                o = model(Is.expand(len(rr), -1, -1, -1), Ns.expand(len(rr), -1, -1, -1), Nt, ct, **extra)
             for j, row in enumerate(rr):
                 save_frame(o["output"][j], out / f"{a}__{b}" / f"{row:06d}.png")
                 if len(gif) < args.gif_frames:

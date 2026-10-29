@@ -34,6 +34,11 @@ def vertex_normals(verts: torch.Tensor, faces: torch.Tensor) -> torch.Tensor:
     return torch.nn.functional.normalize(vn, dim=-1, eps=1e-8)
 
 
+def face_parts(faces: torch.Tensor, vertex_part: torch.Tensor) -> torch.Tensor:
+    """(F, 3) faces + (V,) vertex labels -> (F,) uint8 per-face label (majority of the 3 vertices)."""
+    return torch.mode(vertex_part[faces], dim=1).values.to(torch.uint8)
+
+
 @dataclass
 class RenderOutput:
     normal: torch.Tensor   # (B, 3, H, W) in [0, 1]
@@ -50,10 +55,8 @@ class NormalRenderer:
         self.backend = backend
         self.tile = tile
         self.faces = body.faces
-        # per-face part label = majority (here: label of the first vertex; hands/face are contiguous)
-        vp = body.vertex_part
-        fp = vp[self.faces]                               # (F, 3)
-        self.face_part = torch.mode(fp, dim=1).values.to(torch.uint8)
+        # per-face part label = majority of the 3 vertices (hands/face are contiguous)
+        self.face_part = face_parts(self.faces, body.vertex_part)
 
     @torch.no_grad()
     def render(self, smplx_vec: torch.Tensor, cam: Camera, height: int, width: int,

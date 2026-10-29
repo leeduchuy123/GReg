@@ -38,7 +38,7 @@ def run_cmd(cmd: List[str]) -> None:
 
 def train_run(name: str, overrides: List[str], sweep: dict, args, out_dir: Path) -> float:
     cmd = [sys.executable, "scripts/06_train_greg.py", "--config", sweep["base_config"], "--override",
-           *sweep.get("common", []), *overrides, f"output_dir={out_dir}"]
+           *sweep.get("common", []), *(args.common or []), *overrides, f"output_dir={out_dir}"]
     if args.cache:
         cmd.append(f"data.cache={args.cache}")
     if args.device:
@@ -80,7 +80,8 @@ def eval_run(out_dir: Path, sweep: dict, cache: str, device_name: str) -> Dict[s
     _, summary = evaluate_reconstruction(
         model, cache, keys, device, batch_size=int(ev.get("batch_size", 16)), num_workers=2,
         max_rows=ev.get("max_rows", 16), uniform_rows=True, lpips_metric=lp,
-        eval_region_size=int(ev.get("eval_region_size", 64)))
+        eval_region_size=int(ev.get("eval_region_size", 64)),
+        smplx_dir=cfg["model"].get("flow", {}).get("smplx_dir"))
     del model
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -132,6 +133,9 @@ def main():
     p.add_argument("--flow-checkpoint", default=None)
     p.add_argument("--cache", default=None, help="overrides data.cache")
     p.add_argument("--device", default=None)
+    p.add_argument("--common", nargs="*", default=None,
+                   help="extra overrides for every run (after the sweep's own `common`), "
+                        "e.g. model.flow.smplx_dir=/workspace/data/raw/smplx_dl/models")
     p.add_argument("--only", nargs="*", default=None, help="run only these names")
     p.add_argument("--force", action="store_true", help="re-train and re-evaluate finished runs")
     p.add_argument("--collect-only", action="store_true")

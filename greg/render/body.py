@@ -31,6 +31,12 @@ NOSE = 55
 
 PART_BACKGROUND, PART_BODY, PART_FACE, PART_LHAND, PART_RHAND = 0, 1, 2, 3, 4
 PART_NAMES = ("background", "body", "face", "lhand", "rhand")
+# Extended labels used only by the mesh correspondence (greg.geometry.mesh_flow); the cached
+# ``parts/*.png`` keep the 5 labels above.  Upper arm = shoulder joint, forearm = elbow joint.
+PART_LARM, PART_RARM = 5, 6
+PART_NAMES_ARMS = PART_NAMES + ("larm", "rarm")
+LEFT_ARM_JOINTS = (16, 18)                     # left shoulder, left elbow
+RIGHT_ARM_JOINTS = (17, 19)                    # right shoulder, right elbow
 
 
 @dataclass
@@ -81,16 +87,21 @@ class SMPLXBody:
         self.device = torch.device(device)
         self.faces = torch.as_tensor(self.model.faces.astype(np.int64), device=self.device)  # (F, 3)
         self.vertex_part = self._vertex_parts()
+        self.vertex_part_arms = self._vertex_parts(with_arms=True)
 
     # ------------------------------------------------------------------ parts
-    def _vertex_parts(self) -> torch.Tensor:
+    def _vertex_parts(self, with_arms: bool = False) -> torch.Tensor:
         """Per-vertex part label from the arg-max of the skinning weights.
 
         The hand labels coincide exactly with MANO_SMPLX_vertex_ids (778 per hand).
+        ``with_arms`` additionally labels the upper arm + forearm (``PART_LARM`` / ``PART_RARM``).
         """
         w = self.model.lbs_weights  # (V, 55)
         amax = w.argmax(1)
         part = torch.full_like(amax, PART_BODY)
+        if with_arms:
+            part[torch.isin(amax, torch.tensor(LEFT_ARM_JOINTS, device=amax.device))] = PART_LARM
+            part[torch.isin(amax, torch.tensor(RIGHT_ARM_JOINTS, device=amax.device))] = PART_RARM
         part[torch.isin(amax, torch.tensor(HEAD_JOINTS, device=amax.device))] = PART_FACE
         part[torch.isin(amax, torch.tensor(LEFT_HAND_JOINTS, device=amax.device))] = PART_LHAND
         part[torch.isin(amax, torch.tensor(RIGHT_HAND_JOINTS, device=amax.device))] = PART_RHAND

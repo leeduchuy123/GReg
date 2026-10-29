@@ -8,6 +8,10 @@ Cache layout (``root``)::
     parts/<key>/000012.png     L: 0 bg, 1 body, 2 face, 3 lhand, 4 rhand
     joints/<key>.npy           (N, J, 2) projected SMPL-X joints in crop pixels
     splits/{train,test}.txt    one key per line (``scripts/04_make_splits.py``)
+    faces/<key>/000012.png     uint16: rasterised SMPL-X face index + 1, 0 = bg  (``scripts/02c_mesh_buffers.py``)
+    mesh/<key>.npz             smplx (N, 182), focal (N, 2), princpt (N, 2) crop intrinsics  (idem)
+
+The two mesh entries are only needed for the analytic mesh flow (``model.flow.type: mesh``).
 
 Region centres (face / left hand / right hand) are the means of the projected
 SMPL-X joints (``greg.render.body.region_centers_from_joints``), i.e. they come
@@ -46,6 +50,15 @@ def _load_l(path: Path) -> torch.Tensor:
     return torch.from_numpy(arr.copy())
 
 
+def _load_faces(path: Path) -> torch.Tensor:
+    """uint16 face-index PNG (index + 1, 0 = background) -> (H, W) int32 with -1 = background.
+
+    int32, not int64: two of these per sample go through the DataLoader's shared memory (``/dev/shm`` is small
+    in Docker); ``MeshCorrespondence`` converts to long on the GPU."""
+    arr = np.asarray(Image.open(path)).astype(np.int32)
+    return torch.from_numpy(arr - 1)
+
+
 class HamNoSysCache:
     """Random access to the rows (frames) of the cached clips."""
 
@@ -65,6 +78,7 @@ class HamNoSysCache:
             self.keys = list(keys)
         self.meta: Dict[str, dict] = {k: ok[k] for k in self.keys}
         self._joints: Dict[str, np.ndarray] = {}
+        self._mesh: Dict[str, Dict[str, np.ndarray]] = {}
 
     # ------------------------------------------------------------------ basics
     def __len__(self) -> int:
@@ -99,6 +113,32 @@ class HamNoSysCache:
     def joints_path(self, key: str) -> Path:
         return self.root / "joints" / f"{key}.npy"
 
+    def faces_path(self, key: str, row: int) -> Path:
+        return self.root / "faces" / key / f"{row:06d}.png"
+
+    def mesh_path(self, key: str) -> Path:
+        return self.root / "mesh" / f"{key}.npz"
+
+    def has_mesh(self) -> bool:
+        """True when ``scripts/02c_mesh_buffers.py`` has been run for every clip of this cache view."""
+        return all(self.mesh_path(k).exists() for k in self.keys)
+
+    def keep_keys_with_mesh(self, max_missing_frac: float = 0.01, what: str = "cache") -> List[str]:
+        """Drop the clips without mesh buffers (a clip ``02c`` failed on) instead of crashing mid-run.
+        Raises if more than ``max_missing_frac`` of the clips miss them (02c was not run / ran on another cache).
+        Returns the dropped keys."""
+        missing = [k for k in self.keys if not self.mesh_path(k).exists()]
+        if not missing:
+            return []
+        if len(missing) > max_missing_frac * len(self.keys):
+            raise SystemExit(f"{self.root}: {len(missing)}/{len(self.keys)} clips have no mesh buffers "
+                             f"(e.g. {missing[:3]}): run scripts/02c_mesh_buffers.py on this cache")
+        print(f"WARNING ({what}): {len(missing)} clips without mesh buffers are skipped: {missing[:10]}")
+        drop = set(missing)
+        self.keys = [k for k in self.keys if k not in drop]
+        self.meta = {k: v for k, v in self.meta.items() if k not in drop}
+        return missing
+
     # -------------------------------------------------------------------- data
     def joints(self, key: str) -> np.ndarray:
         """(N, J, 2) projected joints of the whole clip (cached in memory)."""
@@ -108,32 +148,53 @@ class HamNoSysCache:
             self._joints[key] = j
         return j
 
+    def mesh(self, key: str) -> Dict[str, np.ndarray]:
+        """``smplx`` (N, 182), ``focal`` (N, 2), ``princpt`` (N, 2) of the whole clip (cached in memory)."""
+        m = self._mesh.get(key)
+        if m is None:
+            with np.load(self.mesh_path(key)) as z:
+                m = {k: z[k].astype(np.float32) for k in ("smplx", "focal", "princpt")}
+            self._mesh[key] = m
+        return m
+
     def centers(self, key: str, row: int) -> torch.Tensor:
         """(3, 2) region centres of one row."""
         j = torch.from_numpy(self.joints(key)[row][None])
         return region_centers_from_joints(j)[0]
 
-    def load_row(self, key: str, row: int, with_parts: bool = False) -> Dict[str, torch.Tensor]:
+    def load_row(self, key: str, row: int, with_parts: bool = False, with_mesh: bool = False
+                 ) -> Dict[str, torch.Tensor]:
         normal, mask = _load_rgba(self.normal_path(key, row))
         joints = torch.from_numpy(self.joints(key)[row])
         out = {"image": _load_rgb(self.frame_path(key, row)), "normal": normal, "mask": mask,
                "joints_2d": joints, "centers": region_centers_from_joints(joints[None])[0]}
         if with_parts:
             out["parts"] = _load_l(self.part_path(key, row))
+        if with_mesh:
+            m = self.mesh(key)
+            out["faces"] = _load_faces(self.faces_path(key, row))
+            out.update({k: torch.from_numpy(m[k][row].copy()) for k in ("smplx", "focal", "princpt")})
         return out
 
 
-def _pair_item(cache: HamNoSysCache, key: str, s: int, t: int, with_parts: bool) -> dict:
-    src = cache.load_row(key, s, with_parts)
-    tgt = cache.load_row(key, t, with_parts)
+MESH_FIELDS = ("faces", "smplx", "focal", "princpt")
+
+
+def _pair_item(cache: HamNoSysCache, key: str, s: int, t: int, with_parts: bool, with_mesh: bool = False) -> dict:
+    src = cache.load_row(key, s, with_parts, with_mesh)
+    tgt = cache.load_row(key, t, with_parts, with_mesh)
     item = {"source_image": src["image"], "source_normal": src["normal"], "source_mask": src["mask"],
-            "source_centers": src["centers"],
+            "source_centers": src["centers"], "source_joints": src["joints_2d"],
             "target_image": tgt["image"], "target_normal": tgt["normal"], "target_mask": tgt["mask"],
             "target_centers": tgt["centers"], "target_joints": tgt["joints_2d"],
             "key": key, "source_row": s, "target_row": t}
     if with_parts:
         item["source_parts"] = src["parts"]
         item["target_parts"] = tgt["parts"]
+    if with_mesh:
+        for f in MESH_FIELDS:
+            item[f"source_{f}"] = src[f]
+            item[f"target_{f}"] = tgt[f]
     return item
 
 
@@ -143,14 +204,21 @@ class PairDataset(Dataset):
     The pairs are drawn from ``seed + epoch`` so that every epoch sees new pairs
     while a run stays reproducible (``set_epoch``).  ``min_gap`` enforces
     ``|source - target| >= min_gap`` where the clip is long enough.
+
+    ``source_first_prob``: with this probability the source is the clip's first valid row (the rest pose the
+    reconstruction protocol always uses as source), so training sees the large rest -> signing motions the
+    evaluation consists of.  0 = uniform random pairs (the paper's protocol).
     """
 
     def __init__(self, cache: HamNoSysCache, pairs_per_clip: int = 1, seed: int = 0,
-                 with_parts: bool = False, min_gap: int = 0):
+                 with_parts: bool = False, min_gap: int = 0, with_mesh: bool = False,
+                 source_first_prob: float = 0.0):
         self.cache = cache
         self.pairs_per_clip = max(1, int(pairs_per_clip))
         self.seed = int(seed)
         self.with_parts = with_parts
+        self.with_mesh = with_mesh
+        self.source_first_prob = float(source_first_prob)
         self.min_gap = max(0, int(min_gap))
         self.keys = [k for k in cache.keys if len(cache.valid_rows(k)) >= 2]
         self.epoch = 0
@@ -165,6 +233,9 @@ class PairDataset(Dataset):
         rows = self.cache.valid_rows(key)
         n = len(rows)
         gap = min(self.min_gap, n - 1)
+        if self.source_first_prob > 0 and rng.random() < self.source_first_prob:
+            far = [t for t in range(1, n) if t >= gap] or list(range(1, n))
+            return rows[0], rows[rng.choice(far)]
         for _ in range(50):
             s, t = rng.randrange(n), rng.randrange(n)
             if s != t and abs(s - t) >= gap:
@@ -176,7 +247,7 @@ class PairDataset(Dataset):
         key = self.keys[index % len(self.keys)]
         rng = random.Random((self.seed * 1_000_003 + self.epoch) * 7_919 + index)
         s, t = self._draw(key, rng)
-        return _pair_item(self.cache, key, s, t, self.with_parts)
+        return _pair_item(self.cache, key, s, t, self.with_parts, self.with_mesh)
 
 
 class SequenceDataset(Dataset):
@@ -187,9 +258,11 @@ class SequenceDataset(Dataset):
     ``max_rows`` limits the targets per clip (first rows, or evenly spread with ``uniform_rows``)."""
 
     def __init__(self, cache: HamNoSysCache, source_row: int = 0, max_rows: Optional[int] = None,
-                 with_parts: bool = False, include_source_row: bool = False, uniform_rows: bool = False):
+                 with_parts: bool = False, include_source_row: bool = False, uniform_rows: bool = False,
+                 with_mesh: bool = False):
         self.cache = cache
         self.with_parts = with_parts
+        self.with_mesh = with_mesh
         self.items: List[tuple] = []
         for key in cache.keys:
             valid = cache.valid_rows(key)
@@ -210,7 +283,7 @@ class SequenceDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         key, s, t = self.items[index]
-        return _pair_item(self.cache, key, s, t, self.with_parts)
+        return _pair_item(self.cache, key, s, t, self.with_parts, self.with_mesh)
 
 
 def collate_keep_strings(batch: List[dict]) -> dict:
@@ -225,4 +298,4 @@ def collate_keep_strings(batch: List[dict]) -> dict:
     return out
 
 
-__all__ = ["HamNoSysCache", "PairDataset", "SequenceDataset", "collate_keep_strings", "read_split"]
+__all__ = ["HamNoSysCache", "MESH_FIELDS", "PairDataset", "SequenceDataset", "collate_keep_strings", "read_split"]

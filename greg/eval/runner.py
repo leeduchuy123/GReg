@@ -30,8 +30,12 @@ def load_greg(checkpoint: str | Path, device, override_cfg: Optional[dict] = Non
 
 
 @torch.no_grad()
-def generate(model: GReg, image_source, normal_source, normal_target, centers_target) -> Dict[str, torch.Tensor]:
-    return model(image_source, normal_source, normal_target, centers_target)
+def generate(model: GReg, image_source, normal_source, normal_target, centers_target,
+             batch: Optional[dict] = None) -> Dict[str, torch.Tensor]:
+    """``batch``: the dataset batch the tensors come from; needed for the mesh flow (A1) and the adaptive
+    region boxes (B1), see ``GReg.extra_inputs``."""
+    extra = model.extra_inputs(batch) if batch is not None else {}
+    return model(image_source, normal_source, normal_target, centers_target, **extra)
 
 
 def save_frame(t: torch.Tensor, path: Path) -> None:

@@ -82,7 +82,8 @@ def main():
     keys = pick_keys(read_split(Path(args.cache) / "splits" / f"{args.split}.txt"), args.rank_clips, args.subset_seed)
     print(f"ranking {len(keys)} clips by {args.metric} ...")
     rows, summary = evaluate_reconstruction(model, args.cache, keys, device, batch_size=16, num_workers=2,
-                                            source_row=args.source_row, max_rows=args.rank_rows, uniform_rows=True)
+                                            source_row=args.source_row, max_rows=args.rank_rows, uniform_rows=True,
+                                            smplx_dir=cfg["model"].get("flow", {}).get("smplx_dir"))
     per_clip = defaultdict(list)
     by_source = defaultdict(list)
     for r in rows:

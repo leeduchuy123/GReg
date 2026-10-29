@@ -1,0 +1,37 @@
+# Stage 2 with improvements A1 + B1 (docs/A1_B1_kien_truc.md).
+#   A1  flow + occlusion computed from the SMPL-X meshes instead of the learned TPSMM (no stage 1 needed);
+#       needs `scripts/02c_mesh_buffers.py` on the cache and the SMPL-X model files at model.flow.smplx_dir
+#   B1  hand boxes fitted to the hand joints + mesh part masks in the regional losses
+#
+#   python scripts/06_train_greg.py --config configs/hamnosys_greg_mesh.yaml \
+#       --override model.flow.smplx_dir=/workspace/data/raw/smplx_dl/models
+inherits: hamnosys_greg.yaml
+output_dir: outputs/greg_mesh
+
+data:
+  source_first_prob: 0.5       # half of the training pairs use the rest-pose first frame as source (= test protocol)
+
+model:
+  flow:
+    type: mesh                 # tpsmm (paper) | mesh (A1)
+    smplx_dir: models_smplx_v1_1/models   # folder with smplx/SMPLX_NEUTRAL.npz
+    eps_depth: 0.01            # z-buffer tolerance in SMPL-X units (m), on top of the back-face + same-patch tests
+    bg_dilate_px: 4            # source body mask dilation for background visibility (the mesh has no sleeves)
+    stretch_tau: 0.5           # C = clamp(source area per target pixel / tau, 0, 1)
+  occlusion_refine: true       # learned zero-init residual on O_geo = V * C (clothes / hair the mesh misses)
+  occlusion_clamp: 0.02
+  regions:
+    mode: adaptive             # fixed (paper: region_size squares) | adaptive (B1: hands fitted to the hand joints)
+    hand_margin: 0.25          # side = extent * (1 + 2 * margin)
+    min_side: 24
+    max_side: 96
+    adaptive_face: false       # the face already fits the 64x64 box
+    mask_dilate_px: 3          # region masks = part map dilated by 3 px (mesh ~2.5 px off)
+
+loss:
+  region_mask_mode: multiply   # none (paper) | multiply (B1)
+  struct_bg_weight: 0.1        # L_struct weight of the crop pixels outside the region's own mask
+  masked_l1_dilate_px: 4
+  weights:
+    occ: 0.1                   # |O - O_geo|, keeps the occlusion residual close to the geometry
+    masked_l1: 0.0             # optional pixel L1 on hands + arms (ablation)

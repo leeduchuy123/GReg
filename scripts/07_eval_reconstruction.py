@@ -45,6 +45,8 @@ def main():
     p.add_argument("--lpips", action="store_true")
     p.add_argument("--save-frames", action="store_true", help="write generated + real frames (needed for AKD/FVD)")
     p.add_argument("--device", default="auto")
+    p.add_argument("--smplx-dir", default=None, help="enables arm_l1 / disocc_frac for TPSMM checkpoints "
+                                                     "(mesh checkpoints use model.flow.smplx_dir)")
     args = p.parse_args()
 
     device = get_device(args.device)
@@ -66,7 +68,8 @@ def main():
     rows, summary = evaluate_reconstruction(
         model, args.cache, keys, device, batch_size=args.batch_size, num_workers=args.num_workers,
         source_row=args.source_row, max_rows=args.max_rows, uniform_rows=args.uniform_rows, lpips_metric=lp,
-        eval_region_size=args.eval_region_size, on_batch=save)
+        eval_region_size=args.eval_region_size, on_batch=save,
+        smplx_dir=args.smplx_dir or cfg["model"].get("flow", {}).get("smplx_dir"))
     bar.close()
     with open(out / "per_frame.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))

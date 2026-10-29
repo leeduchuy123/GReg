@@ -22,7 +22,7 @@ import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
 from greg.data.gradient import gradient_map
-from greg.data.regions import crop_regions
+from greg.data.regions import box_sides, crop_regions
 
 REGION_NAMES = ("face", "lhand", "rhand")
 REGION_COLORS = ((255, 64, 64), (64, 255, 64), (80, 140, 255))
@@ -71,13 +71,15 @@ def tile_grid(rows: Sequence[Sequence[Image.Image]]) -> Image.Image:
 
 
 def draw_boxes(img: Image.Image, boxes: torch.Tensor, size: int, visible: Optional[Sequence[float]] = None) -> Image.Image:
+    """boxes (R, 2) fixed ``size`` squares or (R, 3) ``(x0, y0, side)`` adaptive squares."""
     img = img.copy()
     d = ImageDraw.Draw(img)
+    sides = box_sides(boxes[None], size)[0]
     for r in range(boxes.shape[0]):
         if visible is not None and visible[r] < 0.5:
             continue
-        x0, y0 = int(boxes[r, 0]), int(boxes[r, 1])
-        d.rectangle([x0, y0, x0 + size - 1, y0 + size - 1], outline=REGION_COLORS[r], width=2)
+        x0, y0, s = int(round(float(boxes[r, 0]))), int(round(float(boxes[r, 1]))), int(round(float(sides[r])))
+        d.rectangle([x0, y0, x0 + s - 1, y0 + s - 1], outline=REGION_COLORS[r], width=2)
     return img
 
 
@@ -90,8 +92,9 @@ def frame_panels(out: Dict[str, torch.Tensor], i: int, image_source: torch.Tenso
     err = error_map(pred, tgt, error_gain)
     size = pred.shape[-1]
     tiles = lambda items: [labelled(to_pil(t), name) for name, t in items]   # noqa: E731
+    geo = [("mesh O_geo = V*C", out["occlusion_geo"][i])] if "occlusion_geo" in out else []
     row1 = tiles([("source I_s", image_source[i]), ("N_s", normal_source[i][:3]), ("N_t", normal_target[i][:3]),
-                  ("warped I_s->t", out["warped"][i]), ("occlusion O (1=keep warped)", out["occlusion"][i]),
+                  ("warped I_s->t", out["warped"][i]), *geo, ("occlusion O (1=keep warped)", out["occlusion"][i]),
                   ("output", pred)])
     row2 = tiles([("target I_t", tgt), (f"|error| x{error_gain:g}", err), ("generator (pre-blend)", out["generated"][i]),
                   ("G_R  face/lh/rh = R/G/B", out["region_gradients"][i]),
@@ -141,8 +144,9 @@ def render_clip(model, cache_root, key: str, device, source_row: int = 0, stride
                 max_frames: Optional[int] = None, rows: Optional[Sequence[int]] = None) -> List[dict]:
     """Run the model over the rows of one clip (source = ``source_row``).  Returns per-frame dicts of CPU
     tensors (``normal``, ``target``, ``output``, ``warped``, ...) plus ``row``, ``l1`` and ``region_l1`` (model boxes)."""
-    from greg.data.dataset import HamNoSysCache, SequenceDataset
-    ds = SequenceDataset(HamNoSysCache(cache_root, [key]), source_row=source_row)
+    from greg.data.dataset import HamNoSysCache, SequenceDataset, collate_keep_strings
+    ds = SequenceDataset(HamNoSysCache(cache_root, [key]), source_row=source_row, with_parts=True,
+                         with_mesh=bool(getattr(model, "uses_mesh", False)))
     items = list(range(len(ds)))[::max(stride, 1)]
     if rows is not None:   # only these target rows
         items = [k for k in range(len(ds)) if ds.items[k][2] in set(rows)]
@@ -153,10 +157,10 @@ def render_clip(model, cache_root, key: str, device, source_row: int = 0, stride
     frames: List[dict] = []
     for b in range(0, len(items), batch_size):
         batch = [ds[k] for k in items[b:b + batch_size]]
-        stack = lambda k: torch.stack([x[k] for x in batch]).to(device)   # noqa: E731
-        Is, Ns, Nt, It, ct = (stack("source_image"), stack("source_normal"), stack("target_normal"),
-                              stack("target_image"), stack("target_centers"))
-        o = model(Is, Ns, Nt, ct)
+        coll = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in collate_keep_strings(batch).items()}
+        Is, Ns, Nt, It, ct = (coll["source_image"], coll["source_normal"], coll["target_normal"],
+                              coll["target_image"], coll["target_centers"])
+        o = model(Is, Ns, Nt, ct, **(model.extra_inputs(coll) if hasattr(model, "extra_inputs") else {}))
         pred = o["output"].clamp(0, 1)
         crops_p = crop_regions(pred, o["boxes"], model.region_size)
         crops_t = crop_regions(It, o["boxes"], model.region_size)
@@ -179,7 +183,9 @@ def fixed_panels(model, cache_root, keys: Sequence[str], device, path: str | Pat
     from greg.data.regions import region_visibility
     panels = []
     cache = HamNoSysCache(cache_root, list(keys))
-    for key in keys:
+    if getattr(model, "uses_mesh", False):
+        cache.keep_keys_with_mesh(max_missing_frac=1.0, what="fixed panels")
+    for key in cache.keys:
         valid = cache.valid_rows(key)
         if len(valid) < 2:
             continue

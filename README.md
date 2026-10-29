@@ -76,6 +76,22 @@ can be compared); `08_eval_cross_person.py` writes a `clip.gif` per pair.
 Ablations (Table 2): `--override model.ablation.no_rpg=true`, `model.ablation.no_gr=true`,
 `loss.weights.adv=0`, `loss.struct_target=grayscale|rgb`.
 
+## Improvements A1 + B1 (beyond the paper)
+
+A1 replaces the learned TPSMM flow by the analytic SMPL-X correspondence (full-resolution flow, z-buffer visibility,
+stretch confidence; no stage 1), B1 fits the hand boxes to the hands and masks the regional losses with the mesh part
+map. Both are config switches (`configs/hamnosys_greg_mesh.yaml`); `docs/A1_B1_kien_truc.md` explains the architecture,
+the formulas and how they were verified.
+
+```bash
+python scripts/02c_mesh_buffers.py --cache data/hamnosys_cache --pkl-dir PKLS --smplx-dir models_smplx_v1_1/models --device cuda --check
+python scripts/14_diag_mesh_flow.py --cache data/hamnosys_cache --flow-checkpoint outputs/flow/checkpoints/epoch_100.pth \
+       --smplx-dir models_smplx_v1_1/models --out outputs/diag_e0          # E0: TPSMM vs mesh warp on the arms
+python scripts/06_train_greg.py --config configs/hamnosys_greg_mesh.yaml   # no --flow-checkpoint needed
+python scripts/11_sweep.py --sweep configs/sweeps/a1_b1_ablation.yaml --flow-checkpoint outputs/flow/checkpoints/epoch_100.pth \
+       --out-root outputs/ablation_a1b1 --common model.flow.smplx_dir=models_smplx_v1_1/models
+```
+
 Local smoke test (CPU, tiny models): `configs/local_debug_*.yaml`, `python -m pytest`.
 
 ## Verified so far (2026-10-17, CPU)

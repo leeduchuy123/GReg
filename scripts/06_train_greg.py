@@ -96,7 +96,10 @@ def main():
 
     model = GReg(cfg["model"]).to(device)
     apply_ablation(model, cfg)
-    if args.flow_checkpoint:
+    if model.uses_mesh:      # A1: the flow comes from the SMPL-X meshes, there is no stage-1 checkpoint
+        if args.flow_checkpoint:
+            print(f"model.flow.type=mesh: ignoring --flow-checkpoint {args.flow_checkpoint}")
+    elif args.flow_checkpoint:
         ck = load_checkpoint(args.flow_checkpoint)
         load_module_state(model.flow, ck["flow"])
         print(f"loaded flow estimator from {args.flow_checkpoint} (epoch {ck.get('epoch')})")
@@ -108,7 +111,8 @@ def main():
     disc = RegionalDiscriminators(3, 4, int(cfg["model"].get("disc_base", 64)),
                                   int(cfg["model"].get("disc_layers", 3))).to(device) if use_adv else None
     print(f"GReg trainable {sum(p.numel() for p in model.trainable_parameters()) / 1e6:.1f}M  "
-          f"flow {count_params(model.flow):.1f}M  D {count_params(disc) if disc else 0:.1f}M  device {device}")
+          f"flow {count_params(model.flow) if model.flow is not None else 0:.1f}M ({model.flow_type})  "
+          f"regions {model.region_mode}  D {count_params(disc) if disc else 0:.1f}M  device {device}")
 
     g_params = [p for p in model.trainable_parameters() if p.requires_grad]
     opt_g = torch.optim.Adam(g_params, lr=float(tr["lr"]), betas=(0.5, 0.999))
@@ -121,12 +125,18 @@ def main():
                                 layer_weights=tr.get("perceptual_weights", (10,) * 5)).to(device)
     criterion = GRegLoss(perceptual, lc.get("weights", {}), gan_type=lc.get("gan_type", "bce"),
                          region_size=model.region_size, region_perceptual_size=int(lc.get("region_perceptual_size", 128)),
-                         struct_target=lc.get("struct_target", "gradient"))
+                         struct_target=lc.get("struct_target", "gradient"),
+                         region_mask_mode=lc.get("region_mask_mode", "none"),
+                         struct_bg_weight=float(lc.get("struct_bg_weight", 1.0)),
+                         masked_l1_dilate_px=int(lc.get("masked_l1_dilate_px", 4)))
     if getattr(model, "ablation_no_rpg", False):
         criterion.w["struct"] = 0.0   # no prior -> no prior structure loss
     scaler = torch.amp.GradScaler("cuda", enabled=bool(tr.get("amp", False)) and device.type == "cuda")
 
-    loader = build_pair_loader(cfg, "train", seed=int(cfg.get("seed", 0)))
+    # B1 needs the target part map: from the mesh (A1) or from parts/*.png (TPSMM runs)
+    need_parts = (criterion.region_mask_mode != "none" or criterion.w["masked_l1"] > 0) and not model.uses_mesh
+    loader = build_pair_loader(cfg, "train", seed=int(cfg.get("seed", 0)), with_parts=need_parts,
+                               with_mesh=model.uses_mesh)
     step, start_epoch = 0, 0
     if args.resume:
         ck = load_checkpoint(args.resume)
@@ -139,8 +149,8 @@ def main():
         step, start_epoch = ck["step"], ck["epoch"] + 1
         print(f"resumed from {args.resume} at epoch {start_epoch}")
     logger = CSVLogger(out_dir / "logs" / "loss.csv",
-                       ["lr", "total", "perceptual", "regional_perceptual", "struct", "adv", "d_total", "g_gradnorm",
-                        "d_gradnorm", "amp_scale", "skipped", "sec_per_step", "vram_gb"])
+                       ["lr", "total", "perceptual", "regional_perceptual", "struct", "adv", "occ", "masked_l1",
+                        "d_total", "g_gradnorm", "d_gradnorm", "amp_scale", "skipped", "sec_per_step", "vram_gb"])
     guard = NonFiniteGuard([model, disc])
 
     def drop(kind, report_losses, report_model, report_disc):
@@ -172,7 +182,8 @@ def main():
         else:
             print(f"WARNING: {vpath} not found -> validation disabled (run scripts/04_make_splits.py)")
     val_logger = CSVLogger(out_dir / "logs" / "val.csv",
-                           ["l1", "psnr", "ssim", "region_l1", "warped_l1", "source_copy_l1"]) if val_keys else None
+                           ["l1", "psnr", "ssim", "region_l1", "hand_l1", "face_l1", "arm_l1", "hand_l1@large",
+                            "arm_l1@large", "warped_l1", "source_copy_l1"]) if val_keys else None
     for epoch in range(start_epoch, epochs):
         loader.dataset.set_epoch(epoch)
         lr = sched_g.set_epoch(epoch)
@@ -185,8 +196,9 @@ def main():
             Ns, Nt = batch["source_normal"], batch["target_normal"]
             rw = region_weights(batch, model.image_size)
             guard.snapshot()
+            extra = model.extra_inputs(batch)      # A1 mesh geometry, B1 joints / part map (computed outside autocast)
             with torch.autocast(device.type, enabled=scaler.is_enabled()):
-                out = model(Is, Ns, Nt, batch["target_centers"])
+                out = model(Is, Ns, Nt, batch["target_centers"], **extra)
                 losses = criterion.generator_loss(out, It, disc, rw)
             # Without AMP nothing skips a non-finite update: one NaN gradient goes straight into Adam and
             # every weight and moment turns NaN (that is what killed the sigma16/struct1 sweep runs).  The
@@ -242,7 +254,8 @@ def main():
             if step % int(tr.get("sample_every", 500)) == 0:
                 rows = []
                 for i in range(min(4, Is.shape[0])):
-                    rows.append([Is[i], Nt[i], out["warped"][i], out["occlusion"][i].expand(3, -1, -1),
+                    occ = [out["occlusion_geo"][i].expand(3, -1, -1)] if "occlusion_geo" in out else []
+                    rows.append([Is[i], Nt[i], out["warped"][i], *occ, out["occlusion"][i].expand(3, -1, -1),
                                  out["prior_map"][i], out["region_gradients"][i], out["generated"][i],
                                  out["output"][i], It[i]])
                 save_grid(rows, out_dir / "samples" / f"step_{step:07d}.png")
@@ -259,9 +272,12 @@ def main():
             _, vs = evaluate_reconstruction(model, cfg["data"]["cache"], val_keys, device,
                                             batch_size=int(va.get("batch_size", 16)), num_workers=int(tr.get("num_workers", 2)),
                                             max_rows=va.get("max_rows", 8), uniform_rows=True,
-                                            eval_region_size=int(va.get("eval_region_size", 64)))
+                                            eval_region_size=int(va.get("eval_region_size", 64)),
+                                            smplx_dir=cfg["model"].get("flow", {}).get("smplx_dir"))
             val_logger.log(step, epoch, {k[5:]: v for k, v in vs.items() if k.startswith("mean_")})
-            print(f"[val ep {epoch + 1}] " + " ".join(f"{k[5:]}={v:.4f}" for k, v in vs.items() if k.startswith("mean_")))
+            shown = [k for k in vs if k.startswith("mean_") and ("@" not in k or k.endswith("@large"))
+                     and not k.startswith(("mean_psnr@", "mean_ssim@", "mean_source_copy", "mean_warped_l1@"))]
+            print(f"[val ep {epoch + 1}] " + " ".join(f"{k[5:]}={vs[k]:.4f}" for k in shown))
             # the same clips at every validation epoch -> compare the images across epochs
             fixed_panels(model, cfg["data"]["cache"], val_keys[:int(va.get("fixed_clips", 3))], device,
                          out_dir / "samples" / f"fixed_ep{epoch + 1:03d}.jpg")

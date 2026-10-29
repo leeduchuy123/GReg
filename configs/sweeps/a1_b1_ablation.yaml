@@ -1,0 +1,32 @@
+# Ablation of the two improvements (docs/A1_B1_kien_truc.md, Sec. 8), short schedule of configs/sweep_greg.yaml.
+#   python scripts/11_sweep.py --sweep configs/sweeps/a1_b1_ablation.yaml \
+#       --flow-checkpoint outputs/flow/checkpoints/epoch_100.pth --out-root outputs/ablation_a1b1 \
+#       --common model.flow.smplx_dir=/workspace/data/raw/smplx_dl/models
+# The flow checkpoint is used by the TPSMM runs only (mesh runs ignore it).  model.flow.smplx_dir is set for every
+# run so that the TPSMM runs also get arm_l1 / disocc_frac (the cache must have the mesh buffers: 02c_mesh_buffers.py).
+base_config: configs/sweep_greg.yaml
+common: []
+eval:
+  split: val
+  max_clips: 100
+  max_rows: 16
+  batch_size: 16
+  lpips: true
+  eval_region_size: 64
+rank_metrics: [l1, lpips, hand_l1, arm_l1, "hand_l1@large", "arm_l1@large"]
+runs:
+  # base = the paper (TPSMM + fixed boxes), same seed and schedule as the others
+  base: []
+  # A1 only: mesh flow + geometric occlusion (+ learned residual), fixed boxes, paper losses
+  a1: [model.flow.type=mesh, model.occlusion_refine=true, loss.weights.occ=0.1]
+  # B1 only: TPSMM flow, adaptive hand boxes + mask-weighted regional losses
+  b1: [model.regions.mode=adaptive, loss.region_mask_mode=multiply, loss.struct_bg_weight=0.1]
+  # A1 + B1
+  a1b1: [model.flow.type=mesh, model.occlusion_refine=true, loss.weights.occ=0.1,
+         model.regions.mode=adaptive, loss.region_mask_mode=multiply, loss.struct_bg_weight=0.1]
+  # secondary ablations on top of A1 + B1
+  a1b1_no_refine: [model.flow.type=mesh, model.occlusion_refine=false,
+                   model.regions.mode=adaptive, loss.region_mask_mode=multiply, loss.struct_bg_weight=0.1]
+  a1b1_first50: [model.flow.type=mesh, model.occlusion_refine=true, loss.weights.occ=0.1,
+                 model.regions.mode=adaptive, loss.region_mask_mode=multiply, loss.struct_bg_weight=0.1,
+                 data.source_first_prob=0.5]

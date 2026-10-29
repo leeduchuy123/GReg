@@ -13,14 +13,18 @@ from greg.data.regions import region_visibility
 from greg.models.tpsmm import TPS
 
 
-def build_pair_loader(cfg: dict, split: str = "train", with_parts: bool = False, seed: int = 0) -> DataLoader:
+def build_pair_loader(cfg: dict, split: str = "train", with_parts: bool = False, seed: int = 0,
+                      with_mesh: bool = False) -> DataLoader:
     data = cfg["data"]
     if split == "train":   # sweeps train on "train_fit" (train minus the validation clips), final runs on "train"
         split = data.get("train_split", "train")
     keys = read_split(f"{data['cache']}/splits/{split}.txt")
     cache = HamNoSysCache(data["cache"], keys)
+    if with_mesh:
+        cache.keep_keys_with_mesh(what=f"{split} loader")
     ds = PairDataset(cache, pairs_per_clip=int(data.get("pairs_per_clip", 1)), seed=seed,
-                     with_parts=with_parts, min_gap=int(data.get("min_gap", 0)))
+                     with_parts=with_parts, min_gap=int(data.get("min_gap", 0)), with_mesh=with_mesh,
+                     source_first_prob=float(data.get("source_first_prob", 0.0)))
     train = cfg["train"]
     return DataLoader(ds, batch_size=int(train["batch_size"]), shuffle=(split == "train"),
                       num_workers=int(train.get("num_workers", 2)), drop_last=(split == "train"),

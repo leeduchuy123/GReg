@@ -90,6 +90,23 @@ GSL L1 0.076 vs 0.014–0.018 for the other sources (14 % of the test frames, bu
 the fade-in) and the evaluated targets to it. No other source is affected (checked by the script).
 The paper does not say how it handled this, so this is a protocol choice to report.
 
+## 9. Improvements beyond the paper: A1 (mesh flow) and B1 (fitted regions)
+
+Not part of the paper; off by default (`configs/hamnosys_greg.yaml` still reproduces the paper), on in
+`configs/hamnosys_greg_mesh.yaml`. Full description, formulas and verification: `docs/A1_B1_kien_truc.md`.
+
+* **A1** `model.flow.type: mesh`: TPSMM is replaced by the analytic SMPL-X correspondence
+  (`greg/geometry/mesh_flow.py`): full-resolution flow, z-buffer visibility V with back-face and
+  same-surface tests, stretch confidence C, O = V·C plus a zero-initialised learned residual
+  (`model.occlusion_refine`, regularised by `loss.weights.occ`). No stage 1. Needs `scripts/02c_mesh_buffers.py`.
+* **B1** `model.regions.mode: adaptive` + `loss.region_mask_mode: multiply`: hand boxes fitted to the
+  hand joints (face box unchanged), regional VGG / discriminator inputs multiplied by the mesh part mask,
+  `L_struct` weighted 1 on the region / `struct_bg_weight` elsewhere. Works with TPSMM too (masks from `parts/*.png`).
+* Protocol option `data.source_first_prob`: share of training pairs whose source is the first valid row
+  (the evaluation's rest-pose source). Report separately from the paper protocol.
+* Evaluation adds `hand_l1`, `face_l1`, `arm_l1`, `disocc_frac` and per-motion-bin means
+  (`wrist_disp` < 10 / 10-40 / > 40 px); `region_l1` on fixed 64x64 boxes is kept for comparability.
+
 ## Other
 
 * Image-level L1/PSNR/SSIM/LPIPS and region-level L1 in `greg/eval/metrics.py`; FVD through the
