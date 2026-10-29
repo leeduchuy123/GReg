@@ -118,6 +118,9 @@ def main():
     grid = tile_grid([[labelled(to_pil(t), f"{titles[0]} {k}:{row} d={d:.0f}px" if j == 0 else titles[j])
                        for j, t in enumerate(ts)] for d, ts, k, row in panels])
     grid.save(out / "panels_largest_motion.jpg", quality=90)
+    # the clips with the largest motion, for side-by-side GIFs of several models (13_visualize.py --keys)
+    keys = list(dict.fromkeys(k for _, _, k, _ in panels))
+    (out / "largest_motion_keys.txt").write_text("\n".join(keys) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps(summary, indent=2))
     print(f"panels -> {out / 'panels_largest_motion.jpg'}")
 

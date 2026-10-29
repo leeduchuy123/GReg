@@ -392,8 +392,23 @@ Hai sửa đổi khác cũng được phát hiện bằng hình:
 
 ```
 fetch → preprocess → validrows → splits → meshbuf (MỚI) → overlay → flow → diag_e0 (MỚI) → ablation (MỚI)
+      → visualize (MỚI: GIF + panel của base / b1 / a1 / a1b1 trên cùng các clip chuyển động lớn nhất của E0)
                                                                                          [→ sweep cũ nếu HP_SWEEP=1]
 ```
+
+**Dựng máy mới và chạy (cách đã dùng cho lần chạy `Greg-run-mesh-flow-regions-improvment`):**
+
+```bash
+apt-get update && apt-get install -y git
+git clone -b feat/mesh-flow-regions https://github.com/leeduchuy123/GReg.git /workspace/GReg
+# rclone.conf (remote "gdrive") chép từ máy local vào /root/.config/rclone/rclone.conf
+cd /workspace/GReg && FLOW_CKPT_DRIVE=GReg_runs/run5/outputs/flow/checkpoints/epoch_100.pth bash scripts/vast/setup.sh
+DRIVE_DEST_DIR=Greg-run-mesh-flow-regions-improvment nohup bash scripts/vast/sync_loop.sh > /dev/null 2>&1 &
+FLOW_CKPT=/workspace/flow_ckpt/epoch_100.pth nohup bash scripts/vast/pipeline.sh > /workspace/logs/pipeline.log 2>&1 &
+```
+
+- `DRIVE_DEST_DIR`: đồng bộ `outputs/`, `logs/`, `state/` vào đúng folder này trong thư mục dự án trên Drive, thay vì `GReg_runs/<RUN_NAME>`. Không ghi đè run khác.
+- `FLOW_CKPT`: dùng checkpoint TPSMM có sẵn (ở đây là của run5, train trên đúng dữ liệu đã lọc fade), bỏ qua train flow. Checkpoint này chỉ dùng cho `base`, `b1` và E0; các run mesh không dùng nó. Nó nằm ngoài `outputs/` nên không bị tải ngược lên Drive.
 
 - `smplx` đã có trong `requirements.txt` (`02_preprocess` cũng cần nó). File model SMPL-X được `fetch_data.sh` tải về `$SMPLX`.
 - Nếu instance cũ đã có `preprocess.done`, `validrows.done`, `splits.done`, `flow.done`: pipeline chỉ chạy `meshbuf`, `diag_e0`, `ablation`. Muốn chạy lại `validrows` (run3 chưa có bộ lọc fade) thì xoá `state/validrows.done`.
