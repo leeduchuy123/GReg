@@ -1,0 +1,24 @@
+# A1 v3 (docs/A1_B1_kien_truc.md Sec. 10c): the ablation-v2 run a1b1_res plus two fixes found in its results.
+#   python scripts/11_sweep.py --sweep configs/sweeps/a1_b1_ablation_v3.yaml \
+#       --flow-checkpoint /workspace/flow_ckpt/epoch_100.pth --out-root outputs/ablation_v3 \
+#       --common model.flow.smplx_dir=/workspace/data/raw/smplx_dl/models train.num_workers=12
+#
+# * crop padding: a mesh sample in the black padding of the square crop is not visible (dataset source_valid_rect;
+#   always on in this code version)
+# * model.gen_input_mask: the generator sees warp * O and O, not the raw warp with the wrong-coloured hands
+# Compare with ablation_v2 'base' (= run5 sweep_clean/ref) and 'a1b1_res': same schedule, data, seed, evaluation.
+base_config: configs/sweep_greg.yaml
+common: [model.gr.qk_norm=true, loss.weights.regional_perceptual=3]
+eval:
+  split: val
+  max_clips: 100
+  max_rows: 16
+  batch_size: 16
+  lpips: true
+  eval_region_size: 64
+rank_metrics: [l1, lpips, hand_l1, arm_l1, "hand_l1@large", "arm_l1@large"]
+runs:
+  a1b1_v3: [model.flow.type=mesh, model.flow.edge_px=4, model.flow.residual.enabled=true,
+            model.occlusion_refine=true, loss.weights.occ=0.1, loss.weights.flow_tv=1.0, loss.weights.flow_mag=0.1,
+            model.regions.mode=adaptive, loss.region_mask_mode=multiply, loss.struct_bg_weight=0.1,
+            model.gen_input_mask=true]

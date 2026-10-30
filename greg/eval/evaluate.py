@@ -120,7 +120,8 @@ def evaluate_reconstruction(model, cache_root: str | Path, keys: Sequence[str], 
         if geo is None and metric_mesh is not None:
             geo = metric_mesh(batch["source_smplx"], batch["source_focal"], batch["source_princpt"],
                               batch["source_faces"], batch["target_smplx"], batch["target_focal"],
-                              batch["target_princpt"], batch["target_faces"])
+                              batch["target_princpt"], batch["target_faces"],
+                              valid_rect_s=batch.get("source_valid_rect"))
         if geo is not None:
             arm = part_mask(geo["parts"], ARM_HAND_LABELS, mask_dilate_px)
             res["arm_l1"] = masked_l1(pred, It, arm)

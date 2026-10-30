@@ -27,6 +27,7 @@ model:
       body_dilate_px: 4        # Δ only within 4 px of the target body
   occlusion_refine: true       # learned zero-init residual on O_geo = V * C (clothes / hair the mesh misses)
   occlusion_clamp: 0.02
+  gen_input_mask: true         # A1 v3: generator input = warp * O (+ O as a 10th channel), not the raw warp
   regions:
     mode: adaptive             # fixed (paper: region_size squares) | adaptive (B1: hands fitted to the hand joints)
     hand_margin: 0.25          # side = extent * (1 + 2 * margin)

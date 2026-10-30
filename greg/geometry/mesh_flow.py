@@ -167,7 +167,8 @@ def edge_confidence(q: torch.Tensor, p: torch.Tensor, seg_s: torch.Tensor, label
 def correspond(uvz_s: torch.Tensor, faces_s: torch.Tensor, uvz_t: torch.Tensor, faces_t: torch.Tensor,
                faces: torch.Tensor, face_part: Optional[torch.Tensor] = None, eps_depth: float = 0.01,
                bg_dilate_px: int = 4, stretch_tau: float = 0.5, edge_px: int = 0,
-               edge_labels=(3, 4, 5, 6)) -> Dict[str, torch.Tensor]:
+               edge_labels=(3, 4, 5, 6), valid_rect_s: Optional[torch.Tensor] = None,
+               rect_margin_px: float = 1.0) -> Dict[str, torch.Tensor]:
     """Target -> source correspondence of two renders of the same mesh topology.
 
     Args:
@@ -176,6 +177,10 @@ def correspond(uvz_s: torch.Tensor, faces_s: torch.Tensor, uvz_t: torch.Tensor, 
         faces: (F, 3) long mesh topology.  face_part: optional (F,) per-face labels -> ``parts``.
         edge_px, edge_labels: confidence ramp near the edges of the moved source limbs (``edge_confidence``);
             needs ``face_part``.  0 = off.
+        valid_rect_s: optional (B, 4) ``x_lo, x_hi, y_lo, y_hi`` of the source crop that shows the real video
+            (``HamNoSysCache.valid_rect``): the rest is black padding, so a body point whose sample q lies there
+            (rest-pose hands below the frame) is not visible.  ``rect_margin_px`` keeps the bilinear sample away
+            from the padding edge.  None = the whole crop (v1 / v2 behaviour).
     """
     B, H, W = faces_t.shape
     dev, dt = uvz_t.device, uvz_t.dtype
@@ -195,6 +200,11 @@ def correspond(uvz_s: torch.Tensor, faces_s: torch.Tensor, uvz_t: torch.Tensor, 
 
     # is that point the visible surface of the source at q? (z-buffer test against the source render)
     inside = (q[..., 0] >= -0.5) & (q[..., 0] <= W - 0.5) & (q[..., 1] >= -0.5) & (q[..., 1] <= H - 0.5)
+    if valid_rect_s is not None:
+        r = valid_rect_s.to(device=dev, dtype=dt).view(B, 4, 1, 1)
+        m = float(rect_margin_px)
+        inside = inside & (q[..., 0] >= r[:, 0] + m) & (q[..., 0] <= r[:, 1] - m) & \
+            (q[..., 1] >= r[:, 2] + m) & (q[..., 1] <= r[:, 3] - m)
     qx = q[..., 0].round().clamp(0, W - 1).long()
     qy = q[..., 1].round().clamp(0, H - 1).long()
     b = torch.arange(B, device=dev).view(B, 1, 1)
@@ -280,7 +290,8 @@ class MeshCorrespondence:
 
     @torch.no_grad()
     def __call__(self, smplx_s, focal_s, princpt_s, faces_s, smplx_t, focal_t, princpt_t, faces_t,
-                 betas_override_t: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+                 betas_override_t: Optional[torch.Tensor] = None,
+                 valid_rect_s: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if betas_override_t is None:      # one SMPL-X pass for both frames
             uvz = self.vertices(torch.cat([smplx_s, smplx_t]), torch.cat([focal_s, focal_t]),
                                 torch.cat([princpt_s, princpt_t]))
@@ -290,4 +301,4 @@ class MeshCorrespondence:
             uvz_t = self.vertices(smplx_t, focal_t, princpt_t, betas_override=betas_override_t)
         return correspond(uvz_s, faces_s.to(self.device).long(), uvz_t, faces_t.to(self.device).long(),
                           self.faces, self.face_part, self.eps_depth, self.bg_dilate_px, self.stretch_tau,
-                          edge_px=self.edge_px)
+                          edge_px=self.edge_px, valid_rect_s=valid_rect_s)

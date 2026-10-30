@@ -498,6 +498,26 @@ Máy vast #58225792 (RTX 4080S), cache đầy đủ (5731 clip, đã lọc fade)
 - **(c) Cấu hình run5** (`qk_norm=true`, `regional_perceptual=3`) cho mọi run của ablation v2. Run `base` **chính là** run `sweep_clean/ref` của run5 (cùng cấu hình, dữ liệu, split, seed), dùng lại checkpoint và chỉ đánh giá lại bằng bộ chỉ số mới (`configs/sweeps/a1_b1_ablation_v2.yaml`, stage `reuse_base`).
 - **E0 v2** (`14_diag_mesh_flow.py --edge-px 4`) đo thêm `arm_Ow_l1_*`: L1 có trọng số O_geo, tức chỉ trên những pixel mô hình thật sự copy. Kèm theo là `arm_O_coverage`: phần trăm cánh tay vẫn được tin để copy.
 
+## 10c. Kết quả ablation v2 và bản sửa v3 (2026-10-30)
+
+**Kết quả v2** (val, 100 clip × 16 khung, cùng lịch 15 epoch, cùng seed):
+
+| Run | L1 | LPIPS | hand_l1@large | arm_l1@large |
+|---|---|---|---|---|
+| `base` (run5 `sweep_clean/ref`) | **0.0210** | **0.0617** | **0.1691** | **0.1036** |
+| `a1b1_res` (A1 v2 + B1) | 0.0238 | 0.0795 | 0.1888 | 0.1273 |
+
+A1 v2 **kém hơn** GReg gốc. Nhìn vào panel `fixed_ep015.jpg`, có ba nguyên nhân:
+1. Mesh SMPL-X ở tư thế nghỉ **lệch cả khối** bàn tay/cẳng tay so với ảnh thật, không chỉ ở viền. Vì vậy flow mesh lấy màu áo hoặc quần tối, và tay bị copy thành màu đen.
+2. Generator vẫn nhận **nguyên ảnh warp** có tay đen, nên vẽ cánh tay sai màu (ánh cam, vệt sọc). Mặt nạ O chỉ quyết định phần nào được *dán* vào ảnh cuối, không ảnh hưởng tới *đầu vào* của generator.
+3. Có lỗi: điểm lấy mẫu rơi vào **vùng đệm đen** của crop vuông (khi crop vượt khỏi khung video) vẫn được coi là nhìn thấy. Lỗi này chiếm khoảng 1–3% pixel tay/cánh tay được tin cậy.
+
+**Sửa ở v3:**
+- (4) `HamNoSysCache.valid_rect` tính phần crop có video thật từ `meta.json` (`crop`, `native_size`). `correspond(valid_rect_s=...)` đặt V = 0 khi `q` nằm ngoài vùng đó (lề 1 px). Bản sửa này luôn bật khi dataset có `native_size`.
+- (1) `model.gen_input_mask: true`: đầu vào của generator là `[warp · O, N_t, R, O]` (10 kênh) thay vì `[warp, N_t, R]`, với O đã tách gradient. Generator không còn thấy các pixel không tin cậy, và biết chính xác chỗ nào phải tự vẽ.
+- Run kiểm chứng: `configs/sweeps/a1_b1_ablation_v3.yaml` → `a1b1_v3`, tức `a1b1_res` cộng hai bản sửa trên. Run này chạy song song với ablation v2 trên cùng máy (thư mục code riêng `/workspace/GReg-v3`, kết quả ở `outputs/ablation_v3/`).
+- Chưa làm, cần nếu v3 vẫn thua: (2) căn mesh nguồn theo ảnh thật (keypoint bàn tay), và (3) dùng mesh làm điều kiện thay vì copy pixel.
+
 ## 11. Giới hạn, rủi ro, việc tiếp theo
 
 | Giới hạn | Hệ quả | Giảm thiểu hiện có / việc tiếp |

@@ -54,6 +54,8 @@ def main():
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--panels", type=int, default=12, help="panels for the largest-motion frames")
     p.add_argument("--edge-px", type=int, default=4, help="edge confidence of the mesh flow (0 = off, as in v1)")
+    p.add_argument("--no-valid-rect", dest="valid_rect", action="store_false",
+                   help="ignore the black crop padding (v1 / v2 behaviour)")
     p.add_argument("--device", default="auto")
     args = p.parse_args()
 
@@ -81,7 +83,8 @@ def main():
             warp_t = warp(Is, fo["deformation"])
             occ_t = resize_occlusion(fo["occlusion"], Is.shape[-2:])
             g = mesh(b["source_smplx"], b["source_focal"], b["source_princpt"], b["source_faces"],
-                     b["target_smplx"], b["target_focal"], b["target_princpt"], b["target_faces"])
+                     b["target_smplx"], b["target_focal"], b["target_princpt"], b["target_faces"],
+                     valid_rect_s=b["source_valid_rect"] if args.valid_rect else None)
             warp_m = warp(Is, g["grid"])
             vis = g["visibility"]
             arm_vis = part_mask(g["parts"], ARM_HAND, 0, soften=False) * vis
@@ -115,7 +118,8 @@ def main():
     for r in rows:
         by_bin[motion_bin(r["wrist_disp"])].append(r)
     names = [k for k in rows[0] if k not in ("key", "target_row", "wrist_disp")]
-    summary = {"num_frames": len(rows), "motion_bins_px": list(MOTION_BINS), "edge_px": args.edge_px}
+    summary = {"num_frames": len(rows), "motion_bins_px": list(MOTION_BINS), "edge_px": args.edge_px,
+               "valid_rect": args.valid_rect}
     for bn in ("all",) + BIN_NAMES:
         sel = rows if bn == "all" else by_bin.get(bn, [])
         summary[bn] = {"num_frames": len(sel), **{k: float(np.nanmean([r[k] for r in sel])) if sel else float("nan")

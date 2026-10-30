@@ -286,3 +286,60 @@ def test_cache_mesh_fields_and_source_first_sampling(tmp_path):
     items = [ds[i] for i in range(len(ds))]
     assert all(it["source_row"] == 0 and it["target_row"] != 0 for it in items)
     assert "source_faces" in items[0] and "target_princpt" in items[0] and "source_joints" in items[0]
+    # no native_size in this meta -> the whole 16 x 16 crop is valid
+    assert torch.equal(items[0]["source_valid_rect"], torch.tensor([-0.5, 15.5, -0.5, 15.5]))
+
+
+def test_valid_rect_from_crop_and_frame_size(tmp_path):
+    cache = _fake_mesh_cache(tmp_path)
+    # a 100 x 60 video, square crop of side 100 starting at y0 = -20: rows -20..0 and 60..80 of the crop are padding
+    cache.meta["clip_a"].update(native_size=[100, 60], crop={"x0": 0.0, "y0": -20.0, "side": 100.0, "size": 100})
+    r = cache.valid_rect("clip_a")
+    assert torch.allclose(r, torch.tensor([-0.5, 99.5, 19.5, 79.5]))
+
+
+def test_valid_rect_hides_samples_in_the_padding():
+    v, f = _mesh((-0.4, 0.4, -0.4, 0.4, 2.0))
+    uvz_s, fm_s = _render(v, f, cx=28.0)
+    uvz_t, fm_t = _render(v, f, cx=33.0)
+    full = correspond(uvz_s, fm_s, uvz_t, fm_t, f)
+    # the source video only covers crop columns x <= 30 (the rest is black padding)
+    rect = torch.tensor([[-0.5, 30.0, -0.5, 63.5]])
+    cut = correspond(uvz_s, fm_s, uvz_t, fm_t, f, valid_rect_s=rect)
+    q = cut["source_coords"][0]
+    body = fm_t[0] >= 0
+    assert full["visibility"][0, 0][body].min() == 1
+    assert cut["visibility"][0, 0][body & (q[..., 0] > 29.0)].max() == 0      # sample in the padding (1 px margin)
+    assert cut["visibility"][0, 0][body & (q[..., 0] < 27.0)].min() == 1      # sample in the video
+
+
+def test_generator_sees_only_the_trusted_warp():
+    torch.manual_seed(0)
+    cfg = dict(SMALL_MESH, gen_input_mask=True, occlusion_refine=False,
+               flow=dict(type="mesh", smplx_dir="unused-in-this-test"))
+    m = GReg(cfg).eval()
+    assert m.generator.stem[0].in_channels == 10
+    B = 1
+    Is, Ns, Nt = (torch.rand(B, 3, 128, 128) for _ in range(3))
+    centers = torch.tensor([[[64.0, 30.0], [30.0, 100.0], [100.0, 100.0]]])
+    joints = torch.rand(B, 144, 2) * 100 + 14
+    ident = torch.stack(torch.meshgrid(torch.linspace(-1, 1, 128), torch.linspace(-1, 1, 128), indexing="xy"), -1)
+    occ = torch.ones(B, 1, 128, 128)
+    occ[..., 40:90, 40:90] = 0                             # untrusted block
+    geo = {"grid": ident[None], "occlusion": occ, "visibility": torch.ones_like(occ), "confidence": occ,
+           "parts": torch.zeros(B, 128, 128, dtype=torch.long)}
+    seen = []
+    hook = m.generator.register_forward_pre_hook(lambda mod, args: seen.append(args[0].detach().clone()))
+    with torch.no_grad():
+        a = m(Is, Ns, Nt, centers, geometry=geo, joints_target=joints)
+        Is2 = Is.clone()
+        Is2[..., 40:90, 40:90] = 0.0                       # change the source only where the warp is untrusted
+        b = m(Is2, Ns, Nt, centers, geometry=geo, joints_target=joints)
+    hook.remove()
+    assert seen[0].shape[1] == 10
+    assert torch.allclose(seen[0][:, :3], seen[1][:, :3])   # warp channels: the untrusted pixels are not visible
+    assert torch.allclose(seen[0][:, 9:], occ)              # 10th channel = the trust mask O
+    assert not torch.allclose(a["warped"], b["warped"])     # although the raw warp did change there
+    out = m.train()(Is, Ns, Nt, centers, geometry=geo, joints_target=joints)
+    out["output"].mean().backward()
+    assert m.generator.stem[0].weight.grad is not None

@@ -100,7 +100,7 @@ def main():
                 extra["geometry"] = model.mesh_correspondence()(
                     rep(src["smplx"]), rep(src["focal"]), rep(src["princpt"]), rep(src["faces"]),
                     vec.to(device), cam.focal.to(device), cam.princpt.to(device), r.frag.face_idx.to(device),
-                    betas_override_t=betas_t)
+                    betas_override_t=betas_t, valid_rect_s=rep(cache.valid_rect(a)))
             with torch.no_grad():
                 o = model(Is.expand(len(rr), -1, -1, -1), Ns.expand(len(rr), -1, -1, -1), Nt, ct, **extra)
             for j, row in enumerate(rr):

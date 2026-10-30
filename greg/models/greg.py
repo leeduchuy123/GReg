@@ -143,8 +143,11 @@ class GReg(nn.Module):
                                                 max_channels=int(gr.get("max_channels", 256)),
                                                 image_size=self.image_size, levels=levels)
         gen = m.get("generator", {})
+        # A1 v3: the generator sees only the trusted part of the warp (warp * O) plus O itself as a 10th channel,
+        # instead of the raw warp in which mis-registered mesh samples are wrong colours (black hands in v2)
+        self.gen_input_mask = bool(m.get("gen_input_mask", False))
         self.generator = GeometryAwareGenerator(
-            in_channels=9, out_channels=3, base=int(gen.get("base", 64)),
+            in_channels=10 if self.gen_input_mask else 9, out_channels=3, base=int(gen.get("base", 64)),
             max_channels=int(gen.get("max_channels", 512)), num_down=int(gen.get("num_down", 4)),
             image_size=self.image_size, grm_levels=levels, grad_channels=self.gradient_encoder.channels,
             grm_heads=int(gr.get("heads", 1)), norm=gen.get("norm", "batch"),
@@ -202,7 +205,8 @@ class GReg(nn.Module):
             return None
         g = {f"{side}_{f}": batch[f"{side}_{f}"] for side in ("source", "target") for f in MESH_BATCH_FIELDS}
         return self.mesh_correspondence()(g["source_smplx"], g["source_focal"], g["source_princpt"], g["source_faces"],
-                                          g["target_smplx"], g["target_focal"], g["target_princpt"], g["target_faces"])
+                                          g["target_smplx"], g["target_focal"], g["target_princpt"], g["target_faces"],
+                                          valid_rect_s=batch.get("source_valid_rect"))
 
     def extra_inputs(self, batch: dict) -> dict:
         """Keyword arguments for :meth:`forward` from a dataset batch: mesh geometry (A1), target joints for the
@@ -280,7 +284,11 @@ class GReg(nn.Module):
 
         g_r = self.region_gradient_input(normal_target, centers_target)
         grad_feats = self.gradient_encoder(g_r)
-        gen_in = torch.cat([warped, normal_target, prior_in], dim=1)
+        if self.gen_input_mask:
+            trust = occlusion.detach()
+            gen_in = torch.cat([warped * trust, normal_target, prior_in, trust], dim=1)
+        else:
+            gen_in = torch.cat([warped, normal_target, prior_in], dim=1)
         generated = self.generator(gen_in, grad_feats)
         output = occlusion * warped + (1 - occlusion) * generated
 

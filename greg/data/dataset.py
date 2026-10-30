@@ -157,6 +157,22 @@ class HamNoSysCache:
             self._mesh[key] = m
         return m
 
+    def valid_rect(self, key: str) -> torch.Tensor:
+        """(4,) ``x_lo, x_hi, y_lo, y_hi``: the part of the size x size crop that shows the real video, in crop
+        pixel-centre coordinates.  The square crop is padded with black where it extends beyond the frame
+        (02_preprocess_hamnosys.py); a mesh sample that lands there must not be copied (A1 v3).  Caches without
+        ``native_size`` give the whole crop."""
+        m = self.meta[key]
+        c = m["crop"]
+        size = float(c["size"])
+        if "native_size" not in m:
+            return torch.tensor([-0.5, size - 0.5, -0.5, size - 0.5])
+        w, h = (float(v) for v in m["native_size"])
+        s = size / float(c["side"])
+        x_lo, x_hi = (0.0 - float(c["x0"])) * s - 0.5, (w - float(c["x0"])) * s - 0.5
+        y_lo, y_hi = (0.0 - float(c["y0"])) * s - 0.5, (h - float(c["y0"])) * s - 0.5
+        return torch.tensor([max(x_lo, -0.5), min(x_hi, size - 0.5), max(y_lo, -0.5), min(y_hi, size - 0.5)])
+
     def centers(self, key: str, row: int) -> torch.Tensor:
         """(3, 2) region centres of one row."""
         j = torch.from_numpy(self.joints(key)[row][None])
@@ -195,6 +211,7 @@ def _pair_item(cache: HamNoSysCache, key: str, s: int, t: int, with_parts: bool,
         for f in MESH_FIELDS:
             item[f"source_{f}"] = src[f]
             item[f"target_{f}"] = tgt[f]
+        item["source_valid_rect"] = cache.valid_rect(key)        # same crop for every row of a clip
     return item
 
 
