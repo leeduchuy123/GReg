@@ -10,7 +10,7 @@ from PIL import Image
 
 from greg.data.dataset import HamNoSysCache, PairDataset
 from greg.data.regions import (adaptive_region_boxes, crop_regions, paste_regions, region_boxes, region_masks)
-from greg.geometry.mesh_flow import barycentric_2d, correspond, pixel_grid
+from greg.geometry.mesh_flow import barycentric_2d, correspond, pixel_grid, segment_depth
 from greg.losses import GRegLoss
 from greg.models.discriminator import RegionalDiscriminators
 from greg.models.greg import GReg
@@ -121,6 +121,30 @@ def test_parts_from_face_labels():
     assert out["parts"][0, 32, 24] == 3 and out["parts"][0, 32, 40] == 5 and out["parts"][0, 0, 0] == 0
 
 
+def test_segment_depth_counts_pixels_inside_the_segment():
+    seg = torch.zeros(1, 21, 21, dtype=torch.long)
+    seg[0, 3:18, 7:14] = 5                                     # 7 px wide strip
+    d = segment_depth(seg, 5)
+    assert d[0, 10, 10] == 3 and d[0, 10, 7] == 0 and d[0, 10, 8] == 1 and d[0, 0, 0] == 0
+
+
+def test_edge_confidence_only_on_the_edges_of_a_moved_limb():
+    # a 16 px wide "forearm" (label 5) that moves 10 px to the right between source and target
+    v, f = _mesh((-0.25, 0.25, -0.5, 0.5, 2.0))
+    fp = torch.tensor([5, 5], dtype=torch.uint8)
+    uvz_s, fm_s = _render(v, f, cx=32.0)
+    uvz_t, fm_t = _render(v, f, cx=42.0)
+    moved = correspond(uvz_s, fm_s, uvz_t, fm_t, f, face_part=fp, edge_px=4)
+    c = moved["confidence"][0, 0]
+    assert float(c[32, 42]) > 0.99                             # middle of the limb: deep inside -> trusted
+    assert float(c[32, 35]) < 0.5                              # 1 px inside the edge -> mostly generated
+    assert moved["visibility"][0, 0][fm_t[0] >= 0].min() == 1   # visibility itself is unchanged
+    still = correspond(uvz_s, fm_s, uvz_s, fm_s, f, face_part=fp, edge_px=4)
+    assert still["confidence"][0, 0].min() > 0.99             # nothing moved: copying is exact, no penalty
+    off = correspond(uvz_s, fm_s, uvz_t, fm_t, f, face_part=fp, edge_px=0)
+    assert float(off["confidence"][0, 0, 32, 35]) > 0.99      # edge_px = 0 -> v1 behaviour
+
+
 # ------------------------------------------------------------------------------------------- B1 regions
 def test_adaptive_box_with_region_size_equals_fixed_crop():
     x = torch.rand(1, 3, 64, 64)
@@ -176,7 +200,8 @@ def test_masked_regional_losses_ignore_the_background():
 
 # -------------------------------------------------------------------------------------------- model / data
 SMALL_MESH = dict(image_size=128, region_size=32, gaussian_sigma=16.0, style_dim=32, style_base=8,
-                  flow=dict(type="mesh", smplx_dir="unused-in-this-test"), occlusion_refine=True,
+                  flow=dict(type="mesh", smplx_dir="unused-in-this-test",
+                            residual=dict(enabled=True, hidden=8, max_px=6.0)), occlusion_refine=True,
                   regions=dict(mode="adaptive", min_side=16, max_side=48),
                   rpg=dict(channels=(8, 16, 16, 16)), gr=dict(base=8, max_channels=32, grm_levels=(16, 32, 64)),
                   generator=dict(base=8, max_channels=32, num_down=4))
@@ -193,19 +218,32 @@ def test_greg_mesh_adaptive_forward_backward():
     ident = torch.stack(torch.meshgrid(torch.linspace(-1, 1, 128), torch.linspace(-1, 1, 128), indexing="xy"), -1)
     parts = torch.zeros(B, 128, 128, dtype=torch.long)
     parts[:, 90:110, 20:40] = 3
+    body = torch.zeros(B, 1, 128, 128)
+    body[:, :, 20:110, 30:100] = 1
     geo = {"grid": ident[None].expand(B, -1, -1, -1), "occlusion": torch.ones(B, 1, 128, 128) * 0.5,
-           "visibility": torch.ones(B, 1, 128, 128), "confidence": torch.ones(B, 1, 128, 128), "parts": parts}
+           "visibility": torch.ones(B, 1, 128, 128), "confidence": torch.ones(B, 1, 128, 128), "parts": parts,
+           "source_coords": pixel_grid(128, 128).expand(B, -1, -1, -1), "target_body": body}
     out = m(Is, Ns, Nt, centers, geometry=geo, joints_target=joints)
     assert out["boxes"].shape == (B, 3, 3) and out["region_masks"].shape == (B, 3, 1, 32, 32)
     assert torch.allclose(out["occlusion"], geo["occlusion"], atol=1e-6)   # zero-init refiner = geometry
+    assert out["flow_residual"].abs().max() == 0                           # zero-init residual = mesh flow
+    assert torch.allclose(out["deformation"], geo["grid"])
     D = RegionalDiscriminators(3, 4, base=8, num_layers=2)
-    loss = GRegLoss(PerceptualLoss(VGG19Features(pretrained=False), scales=(1.0,)), {"occ": 0.1, "masked_l1": 1.0},
+    loss = GRegLoss(PerceptualLoss(VGG19Features(pretrained=False), scales=(1.0,)),
+                    {"occ": 0.1, "masked_l1": 1.0, "flow_tv": 1.0, "flow_mag": 0.1},
                     "hinge", region_size=32, region_perceptual_size=64, region_mask_mode="multiply",
                     struct_bg_weight=0.1)
     g = loss.generator_loss(out, It, D)
-    assert "occ" in g and "masked_l1" in g and torch.isfinite(g["total"])
+    assert all(k in g for k in ("occ", "masked_l1", "flow_tv", "flow_mag")) and torch.isfinite(g["total"])
     g["total"].backward()
     assert any(p.grad is not None for p in m.occlusion_refiner.parameters())
+    last = m.flow_residual.net[-1]
+    assert last.weight.grad is not None and last.weight.grad.abs().sum() > 0  # the image losses reach the residual
+    with torch.no_grad():                                                    # the residual stays within max_px
+        last.bias.fill_(100.0)
+        o2 = m(Is, Ns, Nt, centers, geometry=geo, joints_target=joints)
+    assert o2["flow_residual"].abs().max() <= 6.0 + 1e-4
+    assert o2["flow_residual"][:, :, :5, :5].abs().max() == 0                 # zero away from the body
     d = loss.discriminator_loss(out, It, D)
     assert torch.isfinite(d["d_total"])
 

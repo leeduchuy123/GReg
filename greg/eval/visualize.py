@@ -100,6 +100,9 @@ def frame_panels(out: Dict[str, torch.Tensor], i: int, image_source: torch.Tenso
                   ("G_R  face/lh/rh = R/G/B", out["region_gradients"][i]),
                   ("regional priors R", out["prior_map"][i])])
     row2.append(labelled(draw_boxes(to_pil(pred), out["boxes"][i], region_size, visible), "output + boxes"))
+    if "flow_residual" in out:      # A3: |learned flow correction| (white = the max_px bound)
+        d = out["flow_residual"][i].norm(dim=0, keepdim=True)
+        row2.append(labelled(to_pil(heat(d / 6.0)), f"|flow residual| max {float(d.max()):.1f}px"))
     full = tile_grid([row1, row2])
 
     boxes = out["boxes"][i:i + 1]

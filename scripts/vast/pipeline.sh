@@ -4,6 +4,7 @@
 #   -> E0 diagnostic (TPSMM vs mesh warp) -> A1/B1 ablation (stage 2, short) -> GIFs / panels of base vs A1+B1
 #   [-> old hyper-parameter sweep if HP_SWEEP=1]
 # docs/A1_B1_kien_truc.md explains the A1/B1 stages.
+# BASE_CKPT_DRIVE=<Drive path>: re-use a finished 'base' run of the ablation (run5's sweep_clean/ref) instead of training it.
 # FLOW_CKPT=<path>: use an existing stage-1 checkpoint (e.g. fetched from another run's Drive folder, kept OUTSIDE
 # /workspace/outputs so it is not synced again) instead of training TPSMM; only base / b1 / E0 use it.
 # Layout: /workspace/GReg (code), /workspace/data/raw/{pkls,videos,smplx_dl}, /workspace/outputs, /workspace/state.
@@ -87,24 +88,38 @@ meshbuf() {   # A1: face-index maps + SMPL-X vectors for the analytic mesh flow 
     return $rc
 }
 
-diag_e0() {   # E0: is the warp the bottleneck? TPSMM vs mesh warp on the visible arm / hand pixels, per motion bin
+diag_e0() {   # E0 v2: TPSMM vs mesh warp on the visible arm / hand pixels, per motion bin, with the limb-edge
+              # confidence (edge_px 4) and O_geo-weighted errors (v1 results stay in $OUT/diag_e0)
     python scripts/14_diag_mesh_flow.py --cache $CACHE --flow-checkpoint $FLOW_CKPT \
-        --smplx-dir $SMPLX --out $OUT/diag_e0 --split val --max-clips 50 --max-rows 16
+        --smplx-dir $SMPLX --out $OUT/diag_e0_v2 --split val --max-clips 50 --max-rows 16 --edge-px 4
 }
 
-ablation() {  # base / A1 / B1 / A1+B1 (+2 secondary), short schedule, same seed
-    python scripts/11_sweep.py --sweep configs/sweeps/a1_b1_ablation.yaml --flow-checkpoint $FLOW_CKPT \
-        --out-root $OUT/ablation_a1b1 --cache $CACHE --common model.flow.smplx_dir=$SMPLX train.num_workers=$WORKERS
+reuse_base() {  # 'base' of ablation v2 = run5's sweep_clean/ref (same config, data, split, seed): copy its checkpoint,
+                # 11_sweep then resumes it at its last epoch (no training) and only re-evaluates it with the new metrics
+    [ -n "${BASE_CKPT_DRIVE:-}" ] || { echo "BASE_CKPT_DRIVE not set: base is trained"; return 0; }
+    source scripts/vast/drive.env
+    mkdir -p $OUT/ablation_v2/base/checkpoints
+    [ -f $OUT/ablation_v2/base/checkpoints/last.pth ] || \
+        rclone copyto "$DRIVE$BASE_CKPT_DRIVE" $OUT/ablation_v2/base/checkpoints/last.pth --log-level ERROR || return 1
+    python -c "import torch; ck = torch.load('$OUT/ablation_v2/base/checkpoints/last.pth', map_location='cpu', weights_only=False); \
+m = ck['config']['model']; assert m['gr'].get('qk_norm') is True, 'base checkpoint without qk_norm'; \
+assert ck['config']['loss']['weights']['regional_perceptual'] == 3; \
+print('reused base: epoch', ck['epoch'], 'step', ck['step'], 'qk_norm', m['gr']['qk_norm'])"
+}
+
+ablation() {  # v2: base (= run5 ref) / a1b1_res / b1 / a1b1 / a1_res, run5's config, short schedule, same seed
+    python scripts/11_sweep.py --sweep configs/sweeps/a1_b1_ablation_v2.yaml --flow-checkpoint $FLOW_CKPT \
+        --out-root $OUT/ablation_v2 --cache $CACHE --common model.flow.smplx_dir=$SMPLX train.num_workers=$WORKERS
 }
 
 visualize() {  # clip.gif (N_t | target | output | |error|) + labelled panels + report.html per run; the same
                # largest-motion val clips (from E0) are rendered for every run so they can be compared side by side
-    local keys=""; [ -f $OUT/diag_e0/largest_motion_keys.txt ] && keys=$(tr -d '\r' < $OUT/diag_e0/largest_motion_keys.txt | tr '\n' ' ')
+    local keys=""; [ -f $OUT/diag_e0_v2/largest_motion_keys.txt ] && keys=$(tr -d '\r' < $OUT/diag_e0_v2/largest_motion_keys.txt | tr '\n' ' ')
     local rc=0
-    for run in base b1 a1 a1b1; do
-        local ck=$OUT/ablation_a1b1/$run/checkpoints/last.pth
+    for run in base a1b1_res b1 a1b1; do
+        local ck=$OUT/ablation_v2/$run/checkpoints/last.pth
         [ -f $ck ] || { echo "no checkpoint for $run, skipped"; continue; }
-        python scripts/13_visualize.py --checkpoint $ck --cache $CACHE --split val --out $OUT/vis/$run \
+        python scripts/13_visualize.py --checkpoint $ck --cache $CACHE --split val --out $OUT/vis_v2/$run \
             --rank-clips 60 --worst 4 --median 2 --best 2 --max-frames 96 ${keys:+--keys $keys} || rc=1
     done
     return $rc
@@ -117,8 +132,10 @@ stage splits python scripts/04_make_splits.py --cache $CACHE --seed 0 || exit 1
 stage meshbuf meshbuf || exit 1
 stage overlay python scripts/03_overlay_check.py --cache $CACHE --pkl-dir $PKL --out $OUT/overlay --num 12 || true
 stage flow flow || exit 1
-stage diag_e0 diag_e0 || true
-stage ablation ablation || exit 1
-stage visualize visualize || true
+# v2 stage names: the v1 stages (diag_e0 / ablation / visualize) of an instance that ran v1 are not re-run
+stage diag_e0_v2 diag_e0 || true
+stage reuse_base reuse_base || exit 1
+stage ablation_v2 ablation || exit 1
+stage visualize_v2 visualize || true
 if [ "$HP_SWEEP" = 1 ]; then stage sweep sweep || exit 1; fi
 echo "[$(date -u +%FT%TZ)] PIPELINE_DONE"

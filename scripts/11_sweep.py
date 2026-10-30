@@ -62,7 +62,14 @@ def cost_from_log(out_dir: Path) -> Dict[str, float]:
     return {"sec_per_step_median": sec[len(sec) // 2] if sec else float("nan"), "vram_gb_max": max(vram) if vram else float("nan")}
 
 
-def eval_run(out_dir: Path, sweep: dict, cache: str, device_name: str) -> Dict[str, float]:
+def override_value(overrides: List[str], key: str):
+    """Value of ``key=value`` in a list of overrides (last one wins), or None."""
+    vals = [o.split("=", 1)[1] for o in overrides or [] if o.split("=", 1)[0] == key]
+    return vals[-1] if vals else None
+
+
+def eval_run(out_dir: Path, sweep: dict, cache: str, device_name: str, smplx_dir: str | None = None
+             ) -> Dict[str, float]:
     import torch
     from greg.data.dataset import read_split
     from greg.data.splits import pick_keys
@@ -81,7 +88,8 @@ def eval_run(out_dir: Path, sweep: dict, cache: str, device_name: str) -> Dict[s
         model, cache, keys, device, batch_size=int(ev.get("batch_size", 16)), num_workers=2,
         max_rows=ev.get("max_rows", 16), uniform_rows=True, lpips_metric=lp,
         eval_region_size=int(ev.get("eval_region_size", 64)),
-        smplx_dir=cfg["model"].get("flow", {}).get("smplx_dir"))
+        # a checkpoint trained elsewhere (e.g. run5's re-used 'base') has no smplx_dir: take the sweep's
+        smplx_dir=cfg["model"].get("flow", {}).get("smplx_dir") or smplx_dir)
     del model
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -159,7 +167,9 @@ def main():
                 continue
             print(f"\n=== {name}: {overrides}")
             minutes = train_run(name, overrides, sweep, args, out_dir)
-            summary = eval_run(out_dir, sweep, args.cache, args.device)
+            summary = eval_run(out_dir, sweep, args.cache, args.device,
+                               smplx_dir=override_value(sweep.get("common", []) + (args.common or []) + overrides,
+                                                        "model.flow.smplx_dir"))
             summary.update(name=name, overrides=overrides, train_min=minutes, **cost_from_log(out_dir))
             done.write_text(json.dumps(summary, indent=2), encoding="utf-8")
             print(json.dumps({k: v for k, v in summary.items() if k.startswith("mean_")}, indent=2))

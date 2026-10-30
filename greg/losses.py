@@ -14,8 +14,9 @@ Improvement B1 (``region_mask_mode: multiply``): the regional crops are multipli
 own part (``out["region_masks"]``: face pixels in the face crop, left-hand pixels in the left-hand crop, ...)
 before the regional VGG loss and the regional discriminators, and ``L_struct`` weights the mask by 1 and the
 rest of the crop by ``struct_bg_weight``.  The background around a hand then no longer dominates these losses.
-Two optional terms: ``occ`` = |O - O_geo| keeps the learned occlusion residual of A1 close to the geometry,
-``masked_l1`` = pixel L1 on the dilated hands + arms (labels 3-6 of the mesh part map).
+Optional terms: ``occ`` = |O - O_geo| keeps the learned occlusion residual of A1 close to the geometry,
+``masked_l1`` = pixel L1 on the dilated hands + arms (labels 3-6 of the mesh part map), ``flow_tv`` / ``flow_mag``
+= total variation / mean magnitude (pixels) of the learned mesh-flow residual (A3).
 """
 from __future__ import annotations
 
@@ -67,7 +68,7 @@ class GRegLoss:
                  struct_bg_weight: float = 1.0, masked_l1_dilate_px: int = 4):
         self.perceptual = perceptual
         self.w = {"perceptual": 10.0, "regional_perceptual": 10.0, "struct": 10.0, "adv": 1.0,
-                  "occ": 0.0, "masked_l1": 0.0}
+                  "occ": 0.0, "masked_l1": 0.0, "flow_tv": 0.0, "flow_mag": 0.0}
         self.w.update({k: float(v) for k, v in (weights or {}).items()})
         self.gan_type = gan_type
         self.region_size = region_size
@@ -164,6 +165,13 @@ class GRegLoss:
             m = part_mask(out["parts_target"], ARM_HAND_LABELS, self.masked_l1_dilate_px)
             err = (out["output"] - image_target).abs().mean(1, keepdim=True)
             losses["masked_l1"] = (err * m).sum() / m.sum().clamp(min=1.0)
+        if "flow_residual" in out:   # A3: keep the learned flow correction smooth and small (pixels)
+            d = out["flow_residual"]
+            if self.w["flow_tv"] > 0:
+                losses["flow_tv"] = (d[..., 1:, :] - d[..., :-1, :]).abs().mean() + \
+                    (d[..., :, 1:] - d[..., :, :-1]).abs().mean()
+            if self.w["flow_mag"] > 0:
+                losses["flow_mag"] = d.abs().mean()
         total = sum(self.w[k] * v for k, v in losses.items())
         losses["total"] = total
         return losses

@@ -459,6 +459,45 @@ Cần xem gì sau E0 và ablation:
 
 ---
 
+## 10b. Kết quả trên dữ liệu thật: chẩn đoán E0 (2026-10-30)
+
+Máy vast #58225792 (RTX 4080S), cache đầy đủ (5731 clip, đã lọc fade), checkpoint TPSMM của run5. Các file nằm trên Drive tại `Greg-run-mesh-flow-regions-improvment/outputs/diag_e0/`: `summary.json`, `a1_breakdown.json`, `panels_largest_motion.jpg`.
+
+**L1 của ảnh nguồn sau khi warp** (chưa qua generator), chỉ tính trên pixel đích nhìn thấy được, các khung có cổ tay dịch chuyển > 40 px:
+
+| Vùng | warp mesh (A1) | TPSMM | copy nguồn | mesh, chỉ tính điểm lấy mẫu sâu ≥ 5 px trong chi nguồn |
+|---|---|---|---|---|
+| Bàn tay | **0.202** | 0.218 | 0.233 | **0.178** (TPSMM 0.210) |
+| Cẳng tay | 0.139 | **0.091** | 0.145 | 0.095 (TPSMM 0.077) |
+| Bắp tay | 0.078 | **0.054** | 0.077 | 0.075 (TPSMM 0.051) |
+
+Đọc bảng:
+1. **Bàn tay:** warp mesh tốt hơn TPSMM.
+2. **Cẳng tay:** phần lớn lỗi nằm ở **viền**. Cánh tay buông ở khung nguồn chỉ rộng khoảng 10–15 px và nằm sát thân áo, nên mesh lệch vài pixel là lấy nhầm màu áo hoặc nền. Ví dụ trong `panels_largest_motion.jpg`, cẳng tay giơ lên bị tô màu đen của áo. Chỉ tính các điểm lấy mẫu nằm sâu trong chi thì sai số giảm 32%.
+3. **Bắp tay:** lỗi không giảm khi vào sâu, nên đây là thay đổi ngoại hình (tay áo trượt, ánh sáng), không phải lỗi hình học.
+4. Các giả thuyết **đã bị loại**:
+   - chỉ là lệch nhỏ cộng hiệu ứng L1 ưu tiên ảnh mờ: làm mờ σ = 2 không đảo thứ hạng;
+   - bàn tay nguồn nằm ngoài khung: chênh lệch nhỏ;
+   - lỗi ở vùng nhìn xiên: 90% pixel có C ≥ 0.9.
+5. **Cảnh báo về chính phép đo E0:** TPSMM được huấn luyện bằng loss tái tạo, nên trường warp của nó lấy những pixel *có màu giống* ảnh đích, kể cả khi sai vị trí (ống tay áo "cao su"). L1 trên ảnh warp vì vậy thiên vị TPSMM. Kết luận cuối cùng về A1 phải dựa trên kết quả **sau generator** (ablation).
+
+**Đã sửa theo E0 (v2, 2026-10-30):**
+
+- **(a) Độ tin cậy theo viền chi** (`model.flow.edge_px: 4`, hàm `edge_confidence` trong `greg/geometry/mesh_flow.py`).
+  - Với mỗi pixel đích, đo `q` nằm sâu bao nhiêu pixel trong **phần cơ thể của chính nó ở khung nguồn** (`segment_depth`: cửa sổ (2r+1)² chỉ chứa một nhãn). Viền với nền hay với phần khác đều tính là viền.
+  - Độ tin cậy là `C *= 1 − w_move · (1 − clamp(depth/edge_px, 0, 1))`, trong đó `w_move` tăng tuyến tính từ 0 khi `|q − p| ≤ 1 px` lên 1 khi `|q − p| ≥ 3 px`.
+  - Chỉ áp dụng cho tay và cánh tay (nhãn 3–6).
+  - Vùng **không di chuyển** không bị phạt, vì khi `q = p` thì copy là đúng dù mesh có lệch.
+  - V không đổi. Chỉ C giảm, nên O giảm và generator đóng góp nhiều hơn ở viền chi đã di chuyển.
+- **(b) Residual flow học được, A3** (`model.flow.residual`, lớp `FlowResidual` trong `greg/models/greg.py`).
+  - Đầu vào: ảnh nguồn đã warp bằng mesh, N_t, O_geo và `(q − p)/W`.
+  - Mạng chạy ở nửa độ phân giải (conv giãn 1/2/4/8, vùng nhìn khoảng 70 px) và ra `Δ = 6·tanh(·)` pixel.
+  - Conv cuối khởi tạo 0, nên lúc đầu mô hình **y hệt** flow mesh.
+  - Δ chỉ áp dụng trong vòng 4 px quanh thân đích. Flow mới bằng flow mesh cộng Δ, rồi warp lại.
+  - Không có flow ground truth: Δ học qua các loss ảnh (`grid_sample` khả vi theo lưới), cộng thêm `flow_tv` (độ mượt) và `flow_mag` (độ lớn) để giữ Δ mượt và nhỏ.
+- **(c) Cấu hình run5** (`qk_norm=true`, `regional_perceptual=3`) cho mọi run của ablation v2. Run `base` **chính là** run `sweep_clean/ref` của run5 (cùng cấu hình, dữ liệu, split, seed), dùng lại checkpoint và chỉ đánh giá lại bằng bộ chỉ số mới (`configs/sweeps/a1_b1_ablation_v2.yaml`, stage `reuse_base`).
+- **E0 v2** (`14_diag_mesh_flow.py --edge-px 4`) đo thêm `arm_Ow_l1_*`: L1 có trọng số O_geo, tức chỉ trên những pixel mô hình thật sự copy. Kèm theo là `arm_O_coverage`: phần trăm cánh tay vẫn được tin để copy.
+
 ## 11. Giới hạn, rủi ro, việc tiếp theo
 
 | Giới hạn | Hệ quả | Giảm thiểu hiện có / việc tiếp |

@@ -125,15 +125,57 @@ def stretch_confidence(q: torch.Tensor, body: torch.Tensor, tau: float) -> torch
     return torch.where(_erode(body, 1), conf, torch.ones_like(conf))
 
 
+def segment_depth(seg: torch.Tensor, max_px: int) -> torch.Tensor:
+    """(B, H, W) integer label map -> (B, H, W) float: how many pixels (capped at ``max_px``) the pixel lies inside
+    its own segment, i.e. the largest r <= max_px such that the whole (2r+1)^2 window has its label.  Background
+    (label 0) gets 0; a boundary with the background or with another part both count as an edge."""
+    s = seg.float()[:, None]
+    depth = torch.zeros_like(s)
+    for r in range(1, max_px + 1):
+        k = 2 * r + 1
+        same = F.max_pool2d(s, k, 1, r) == -F.max_pool2d(-s, k, 1, r)                # window has one label only
+        depth += (same & (s > 0)).float()
+    return depth[:, 0]
+
+
+def edge_confidence(q: torch.Tensor, p: torch.Tensor, seg_s: torch.Tensor, labels, edge_px: int,
+                    move_px: float = 1.0, move_ramp_px: float = 2.0) -> torch.Tensor:
+    """Confidence of sampling the source at q, given how close q is to the edge of its limb segment.
+
+    E0 on real data: a hanging forearm is only 10-15 px wide next to the (often dark) shirt, and the SMPL-X fit is
+    off by a few px, so mesh-warped forearm pixels sampled near the limb edge take the shirt / background colour
+    (L1 0.139 -> 0.095 when only samples >= 5 px inside the limb are counted).  For samples whose source segment
+    is in ``labels`` (hands, arms): conf = depth(q) / edge_px, applied only where the point moved (|q - p| beyond
+    ``move_px``, fully after ``move_px + move_ramp_px``): where nothing moved, q = p and copying is exact whatever
+    the fit error.  Returns (B, H, W) in [0, 1]; 1 everywhere when ``edge_px <= 0``."""
+    if edge_px <= 0:
+        return torch.ones_like(q[..., 0])
+    B, H, W = seg_s.shape
+    depth = segment_depth(seg_s, edge_px)
+    qx = q[..., 0].round().clamp(0, W - 1).long()
+    qy = q[..., 1].round().clamp(0, H - 1).long()
+    b = torch.arange(B, device=q.device).view(B, 1, 1)
+    d_q, lab_q = depth[b, qy, qx], seg_s[b, qy, qx]
+    limb = torch.zeros_like(lab_q, dtype=torch.bool)
+    for lab in labels:
+        limb |= lab_q == int(lab)
+    near_edge = 1 - (d_q / edge_px).clamp(0, 1)
+    moved = ((q - p).norm(dim=-1) - move_px).clamp(min=0) / max(move_ramp_px, 1e-6)
+    return torch.where(limb, 1 - moved.clamp(0, 1) * near_edge, torch.ones_like(near_edge))
+
+
 def correspond(uvz_s: torch.Tensor, faces_s: torch.Tensor, uvz_t: torch.Tensor, faces_t: torch.Tensor,
                faces: torch.Tensor, face_part: Optional[torch.Tensor] = None, eps_depth: float = 0.01,
-               bg_dilate_px: int = 4, stretch_tau: float = 0.5) -> Dict[str, torch.Tensor]:
+               bg_dilate_px: int = 4, stretch_tau: float = 0.5, edge_px: int = 0,
+               edge_labels=(3, 4, 5, 6)) -> Dict[str, torch.Tensor]:
     """Target -> source correspondence of two renders of the same mesh topology.
 
     Args:
         uvz_s, uvz_t: (B, V, 3) projected vertices (u, v in pixels, z = camera depth) of source / target.
         faces_s, faces_t: (B, H, W) long rasterised face index (-1 = background) of source / target.
         faces: (F, 3) long mesh topology.  face_part: optional (F,) per-face labels -> ``parts``.
+        edge_px, edge_labels: confidence ramp near the edges of the moved source limbs (``edge_confidence``);
+            needs ``face_part``.  0 = off.
     """
     B, H, W = faces_t.shape
     dev, dt = uvz_t.device, uvz_t.dtype
@@ -194,7 +236,15 @@ def correspond(uvz_s: torch.Tensor, faces_s: torch.Tensor, uvz_t: torch.Tensor, 
     neigh = (F.avg_pool2d(F.pad(v, (1, 1, 1, 1), mode="replicate"), 3, 1) * 9 - v)[:, 0]
     fillable = torch.where(body_t, inside & front_s, torch.ones_like(body_t))
     vis = (vis | ((neigh >= 7) & fillable)).to(dt)
-    conf = stretch_confidence(q, body_t, stretch_tau).to(dt)
+    conf = stretch_confidence(q, body_t, stretch_tau)
+    if edge_px > 0:
+        if face_part is None:
+            raise ValueError("edge_px > 0 needs face_part (the source limb segments)")
+        fp_s = face_part.to(dev)[faces_s.clamp(min=0)].long()
+        seg_s = torch.where(faces_s >= 0, fp_s, torch.zeros_like(fp_s))
+        conf_edge = torch.where(body_t, edge_confidence(q, p, seg_s, edge_labels, edge_px), torch.ones_like(conf))
+        conf = conf * conf_edge
+    conf = conf.to(dt)
     out = {"grid": pixels_to_grid(q, H, W), "source_coords": q, "visibility": vis[:, None],
            "confidence": conf[:, None], "occlusion": (vis * conf)[:, None], "target_body": body_t[:, None].to(dt)}
     if face_part is not None:
@@ -208,13 +258,14 @@ class MeshCorrespondence:
     never saved in a checkpoint (built from ``model.flow`` config, see ``GReg.mesh_correspondence``)."""
 
     def __init__(self, smplx_dir: str, device="cpu", eps_depth: float = 0.01, bg_dilate_px: int = 4,
-                 stretch_tau: float = 0.5):
+                 stretch_tau: float = 0.5, edge_px: int = 0):
         self.body = SMPLXBody(smplx_dir, device=device)
         self.device = self.body.device
         self.faces = self.body.faces
         from greg.render.normals import face_parts
         self.face_part = face_parts(self.faces, self.body.vertex_part_arms)
         self.eps_depth, self.bg_dilate_px, self.stretch_tau = float(eps_depth), int(bg_dilate_px), float(stretch_tau)
+        self.edge_px = int(edge_px)
 
     @torch.no_grad()
     def vertices(self, smplx_vec: torch.Tensor, focal: torch.Tensor, princpt: torch.Tensor,
@@ -238,4 +289,5 @@ class MeshCorrespondence:
             uvz_s = self.vertices(smplx_s, focal_s, princpt_s)
             uvz_t = self.vertices(smplx_t, focal_t, princpt_t, betas_override=betas_override_t)
         return correspond(uvz_s, faces_s.to(self.device).long(), uvz_t, faces_t.to(self.device).long(),
-                          self.faces, self.face_part, self.eps_depth, self.bg_dilate_px, self.stretch_tau)
+                          self.faces, self.face_part, self.eps_depth, self.bg_dilate_px, self.stretch_tau,
+                          edge_px=self.edge_px)

@@ -150,6 +150,7 @@ def main():
         print(f"resumed from {args.resume} at epoch {start_epoch}")
     logger = CSVLogger(out_dir / "logs" / "loss.csv",
                        ["lr", "total", "perceptual", "regional_perceptual", "struct", "adv", "occ", "masked_l1",
+                        "flow_tv", "flow_mag",
                         "d_total", "g_gradnorm", "d_gradnorm", "amp_scale", "skipped", "sec_per_step", "vram_gb"])
     guard = NonFiniteGuard([model, disc])
 

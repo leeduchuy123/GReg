@@ -1,0 +1,37 @@
+# Ablation v2 of A1 / B1 (docs/A1_B1_kien_truc.md Sec. 8, 10b) with run5's chosen configuration.
+#   python scripts/11_sweep.py --sweep configs/sweeps/a1_b1_ablation_v2.yaml \
+#       --flow-checkpoint /workspace/flow_ckpt/epoch_100.pth --out-root outputs/ablation_v2 \
+#       --common model.flow.smplx_dir=/workspace/data/raw/smplx_dl/models train.num_workers=12
+#
+# v1 -> v2:
+# * common = run5's chosen config (sweep_clean 'ref' = greg_final): qk_norm (v1 'base' diverged with NaN at epoch 5
+#   without it) and regional_perceptual=3.  Same short schedule (configs/sweep_greg.yaml: 15 epochs on train_fit).
+# * 'base' IS run5's sweep_clean/ref (same config, data, split, seed): pipeline.sh copies its last.pth into
+#   <out-root>/base/checkpoints/ (BASE_CKPT_DRIVE), so 11_sweep only re-evaluates it with the new metrics.
+# * A1 fixes from E0 on real data: limb-edge confidence (model.flow.edge_px) and a learned flow residual (A3).
+# Runs are ordered by importance: the main comparison (base vs a1b1_res) is available first.
+base_config: configs/sweep_greg.yaml
+common: [model.gr.qk_norm=true, loss.weights.regional_perceptual=3]
+eval:
+  split: val
+  max_clips: 100
+  max_rows: 16
+  batch_size: 16
+  lpips: true
+  eval_region_size: 64
+rank_metrics: [l1, lpips, hand_l1, arm_l1, "hand_l1@large", "arm_l1@large"]
+runs:
+  # paper model (TPSMM + fixed boxes) with run5's config = run5 sweep_clean/ref, re-evaluated
+  base: []
+  # A1 (mesh flow + edge confidence + learned residual + occlusion residual) + B1 (fitted hand boxes + masks)
+  a1b1_res: [model.flow.type=mesh, model.flow.edge_px=4, model.flow.residual.enabled=true,
+             model.occlusion_refine=true, loss.weights.occ=0.1, loss.weights.flow_tv=1.0, loss.weights.flow_mag=0.1,
+             model.regions.mode=adaptive, loss.region_mask_mode=multiply, loss.struct_bg_weight=0.1]
+  # B1 only (TPSMM flow)
+  b1: [model.regions.mode=adaptive, loss.region_mask_mode=multiply, loss.struct_bg_weight=0.1]
+  # A1 + B1 without the learned residual: does the residual help?
+  a1b1: [model.flow.type=mesh, model.flow.edge_px=4, model.occlusion_refine=true, loss.weights.occ=0.1,
+         model.regions.mode=adaptive, loss.region_mask_mode=multiply, loss.struct_bg_weight=0.1]
+  # A1 (with residual) only, paper regions / losses
+  a1_res: [model.flow.type=mesh, model.flow.edge_px=4, model.flow.residual.enabled=true,
+           model.occlusion_refine=true, loss.weights.occ=0.1, loss.weights.flow_tv=1.0, loss.weights.flow_mag=0.1]

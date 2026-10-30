@@ -23,6 +23,7 @@ from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from greg.data.gradient import gradient_map
 from greg.data.regions import (NUM_REGIONS, adaptive_region_boxes, crop_regions, region_boxes, region_gaussians,
@@ -32,6 +33,7 @@ from greg.models.gradient_refine import GradientEncoder
 from greg.models.regional_expert import RegionalPriorGenerator
 from greg.models.style import StyleEncoder
 from greg.models.tpsmm import FlowEstimator, resize_occlusion, warp
+from greg.geometry.mesh_flow import pixel_grid
 from greg.render.body import region_extents_from_joints
 
 MESH_BATCH_FIELDS = ("smplx", "focal", "princpt", "faces")
@@ -60,6 +62,37 @@ class OcclusionRefiner(nn.Module):
         return torch.sigmoid(logit + self.net(torch.cat([warped, normal_target, occ_geo], dim=1)))
 
 
+class FlowResidual(nn.Module):
+    """A3: learned residual Δ (pixels) on the analytic mesh flow.
+
+    E0 showed that the SMPL-X fit is a few pixels off the real limbs, which is enough for the mesh warp of a thin
+    forearm to sample the shirt next to it.  This net sees the mesh-warped source, the target normals, O_geo and the
+    mesh displacement (q - p) / size, runs at half resolution (receptive field ~70 px at full resolution) and
+    predicts Δ = max_px * tanh(.); the last conv is zero-initialised, so training starts from the mesh flow exactly.
+    No flow ground truth exists: Δ is learned end-to-end through the image losses (the warp is differentiable
+    w.r.t. the sampling grid), kept smooth / small by ``loss.weights.flow_tv`` / ``flow_mag``."""
+
+    def __init__(self, in_channels: int = 9, hidden: int = 48, max_px: float = 6.0):
+        super().__init__()
+        self.max_px = float(max_px)
+        act = nn.LeakyReLU(0.2)
+        self.net = nn.Sequential(nn.Conv2d(in_channels, hidden, 3, stride=2, padding=1), act,
+                                 nn.Conv2d(hidden, hidden, 3, padding=1), act,
+                                 nn.Conv2d(hidden, hidden, 3, padding=2, dilation=2), act,
+                                 nn.Conv2d(hidden, hidden, 3, padding=4, dilation=4), act,
+                                 nn.Conv2d(hidden, hidden, 3, padding=8, dilation=8), act,
+                                 nn.Conv2d(hidden, hidden, 3, padding=1), act,
+                                 nn.Conv2d(hidden, 2, 3, padding=1))
+        nn.init.zeros_(self.net[-1].weight)
+        nn.init.zeros_(self.net[-1].bias)
+
+    def forward(self, warped: torch.Tensor, normal_target: torch.Tensor, occ_geo: torch.Tensor,
+                displacement: torch.Tensor) -> torch.Tensor:
+        """-> (B, 2, H, W) residual in pixels (x, y)."""
+        d = torch.tanh(self.net(torch.cat([warped, normal_target, occ_geo, displacement], dim=1))) * self.max_px
+        return F.interpolate(d, size=warped.shape[-2:], mode="bilinear", align_corners=False)
+
+
 class GReg(nn.Module):
     def __init__(self, cfg: dict):
         super().__init__()
@@ -83,6 +116,10 @@ class GReg(nn.Module):
             self.flow = None          # A1: the flow is computed from the meshes, nothing to learn or load
         self.occlusion_refiner = OcclusionRefiner(clamp=float(m.get("occlusion_clamp", 0.02))) \
             if self.flow_type == "mesh" and bool(m.get("occlusion_refine", False)) else None
+        res = flow_cfg.get("residual", {}) or {}
+        self.flow_residual = FlowResidual(hidden=int(res.get("hidden", 48)), max_px=float(res.get("max_px", 6.0))) \
+            if self.flow_type == "mesh" and bool(res.get("enabled", False)) else None
+        self.residual_body_dilate_px = int(res.get("body_dilate_px", 4))
         self._mesh = None             # MeshCorrespondence, built lazily (needs smplx + the SMPL-X files)
 
         rc = m.get("regions", {}) or {}
@@ -153,7 +190,8 @@ class GReg(nn.Module):
                                         "(on vast.ai: --override model.flow.smplx_dir=/workspace/data/raw/smplx_dl/models)")
             self._mesh = MeshCorrespondence(c["smplx_dir"], device=dev, eps_depth=float(c.get("eps_depth", 0.01)),
                                             bg_dilate_px=int(c.get("bg_dilate_px", 4)),
-                                            stretch_tau=float(c.get("stretch_tau", 0.5)))
+                                            stretch_tau=float(c.get("stretch_tau", 0.5)),
+                                            edge_px=int(c.get("edge_px", 0)))
         return self._mesh
 
     @torch.no_grad()
@@ -206,10 +244,19 @@ class GReg(nn.Module):
             deformation = geometry["grid"]
             occ_geo = geometry["occlusion"]
             warped = warp(image_source, deformation)
-            occlusion = occ_geo if self.occlusion_refiner is None else \
-                self.occlusion_refiner(warped, normal_target, occ_geo)
             extra = {"occlusion_geo": occ_geo, "visibility": geometry["visibility"],
                      "confidence": geometry["confidence"]}
+            if self.flow_residual is not None:   # A3: learned correction of the mesh flow, only around the body
+                q = geometry["source_coords"]                                          # (B, H, W, 2) pixels
+                disp = (q - pixel_grid(H, W, q.dtype, q.device)).permute(0, 3, 1, 2) / float(W)
+                r = self.residual_body_dilate_px
+                near_body = F.max_pool2d(geometry["target_body"], 2 * r + 1, 1, r) if r > 0 else geometry["target_body"]
+                delta = self.flow_residual(warped, normal_target, occ_geo, disp) * near_body   # (B, 2, H, W)
+                deformation = deformation + delta.permute(0, 2, 3, 1) * (2.0 / (W - 1))
+                warped = warp(image_source, deformation)
+                extra["flow_residual"] = delta
+            occlusion = occ_geo if self.occlusion_refiner is None else \
+                self.occlusion_refiner(warped, normal_target, occ_geo)
             if parts_target is None:
                 parts_target = geometry.get("parts")
         else:

@@ -53,6 +53,7 @@ def main():
     p.add_argument("--max-rows", type=int, default=16)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--panels", type=int, default=12, help="panels for the largest-motion frames")
+    p.add_argument("--edge-px", type=int, default=4, help="edge confidence of the mesh flow (0 = off, as in v1)")
     p.add_argument("--device", default="auto")
     args = p.parse_args()
 
@@ -63,7 +64,7 @@ def main():
                           multi_mask=bool(f.get("multi_mask", False))).to(device)
     load_module_state(tpsmm, ck["flow"])
     tpsmm.eval()
-    mesh = MeshCorrespondence(args.smplx_dir, device=device)
+    mesh = MeshCorrespondence(args.smplx_dir, device=device, edge_px=args.edge_px)
 
     keys = pick_keys(read_split(Path(args.cache) / "splits" / f"{args.split}.txt"), args.max_clips, seed=0)
     cache = HamNoSysCache(args.cache, keys)
@@ -88,9 +89,16 @@ def main():
             core = part_mask(g["parts"], ARM_HAND, 0, soften=False)
             n = core.sum(dim=(1, 2, 3))
             disocc = (core * (1 - vis)).sum(dim=(1, 2, 3)) / n.clamp(min=1)
+            # *_Ow: weighted by O_geo = V * C (stretch + limb-edge confidence), i.e. on the pixels the model copies
+            arm_ow = part_mask(g["parts"], ARM_HAND, 0, soften=False) * g["occlusion"]
             res = {"arm_vis_l1_tpsmm": masked_l1(warp_t, It, arm_vis), "arm_vis_l1_mesh": masked_l1(warp_m, It, arm_vis),
                    "hand_vis_l1_tpsmm": masked_l1(warp_t, It, hand_vis), "hand_vis_l1_mesh": masked_l1(warp_m, It, hand_vis),
                    "copy_arm_vis_l1": masked_l1(Is, It, arm_vis),
+                   "arm_Ow_l1_mesh": masked_l1(warp_m, It, arm_ow, min_pixels=1.0),
+                   "arm_Ow_l1_tpsmm": masked_l1(warp_t, It, arm_ow, min_pixels=1.0),
+                   "arm_Ow_l1_copy": masked_l1(Is, It, arm_ow, min_pixels=1.0),
+                   "arm_O_coverage": torch.where(n > 0, arm_ow.sum(dim=(1, 2, 3)) / n.clamp(min=1),
+                                                 torch.full_like(disocc, float("nan"))),
                    "disocc_frac": torch.where(n > 0, disocc, torch.full_like(disocc, float("nan"))),
                    "wrist_disp": wrist_displacement(b["source_joints"], b["target_joints"])}
             for i in range(Is.shape[0]):
@@ -107,7 +115,7 @@ def main():
     for r in rows:
         by_bin[motion_bin(r["wrist_disp"])].append(r)
     names = [k for k in rows[0] if k not in ("key", "target_row", "wrist_disp")]
-    summary = {"num_frames": len(rows), "motion_bins_px": list(MOTION_BINS)}
+    summary = {"num_frames": len(rows), "motion_bins_px": list(MOTION_BINS), "edge_px": args.edge_px}
     for bn in ("all",) + BIN_NAMES:
         sel = rows if bn == "all" else by_bin.get(bn, [])
         summary[bn] = {"num_frames": len(sel), **{k: float(np.nanmean([r[k] for r in sel])) if sel else float("nan")
