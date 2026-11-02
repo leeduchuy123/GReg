@@ -95,6 +95,29 @@ def akd(kp_pred: np.ndarray, kp_real: np.ndarray, image_size: int, conf_threshol
     return out
 
 
+def gaussian_blur(x: torch.Tensor, sigma: float) -> torch.Tensor:
+    """Separable Gaussian blur of (B, C, H, W), reflect padding, kernel radius 3 sigma."""
+    r = max(int(round(3 * sigma)), 1)
+    t = torch.arange(-r, r + 1, device=x.device, dtype=x.dtype)
+    k = torch.exp(-(t ** 2) / (2 * sigma ** 2))
+    k = k / k.sum()
+    C = x.shape[1]
+    xp = F.pad(x, (r, r, r, r), mode="reflect")
+    xp = F.conv2d(xp, k.view(1, 1, 1, -1).expand(C, 1, 1, -1), groups=C)
+    return F.conv2d(xp, k.view(1, 1, -1, 1).expand(C, 1, -1, 1), groups=C)
+
+
+def lowfreq_l1(pred: torch.Tensor, target: torch.Tensor, sigma: float = 8.0,
+               mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """L1 between the Gaussian-blurred images (B,): catches a drift of the colours / skin tone that a refiner
+    can introduce while the high frequencies look right (CraftsMan3D, docs/bai_hoc_diffusion_mesh_cho_greg.md K4).
+    ``mask`` (B, 1, H, W) restricts the average (e.g. everything but the hands)."""
+    err = (gaussian_blur(pred, sigma) - gaussian_blur(target, sigma)).abs().mean(1, keepdim=True)
+    if mask is None:
+        return err.mean(dim=(1, 2, 3))
+    return (err * mask).sum(dim=(1, 2, 3)) / mask.sum(dim=(1, 2, 3)).clamp(min=1.0)
+
+
 def tcd(gen: torch.Tensor, real: torch.Tensor, threshold: float = 0.5) -> float:
     """Temporal consistency distance used in the PGMM repo (fraction of pixels whose
     generated value deviates > threshold from the temporal mean of real neighbours)."""

@@ -256,7 +256,10 @@ def correspond(uvz_s: torch.Tensor, faces_s: torch.Tensor, uvz_t: torch.Tensor, 
         conf = conf * conf_edge
     conf = conf.to(dt)
     out = {"grid": pixels_to_grid(q, H, W), "source_coords": q, "visibility": vis[:, None],
-           "confidence": conf[:, None], "occlusion": (vis * conf)[:, None], "target_body": body_t[:, None].to(dt)}
+           "confidence": conf[:, None], "occlusion": (vis * conf)[:, None], "target_body": body_t[:, None].to(dt),
+           # barycentrics of every target pixel in its own triangle (0 on the background): lets callers
+           # interpolate any per-vertex attribute of the target render, e.g. the canonical coordinate map
+           "bary_target": torch.where(body_t[..., None], bary, torch.zeros_like(bary))}
     if face_part is not None:
         fp = face_part.to(dev)[faces_t.clamp(min=0)].long()
         out["parts"] = torch.where(body_t, fp, torch.zeros_like(fp))

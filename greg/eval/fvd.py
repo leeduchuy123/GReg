@@ -71,7 +71,10 @@ def frechet_distance(mu1: np.ndarray, s1: np.ndarray, mu2: np.ndarray, s2: np.nd
     """||mu1-mu2||^2 + Tr(S1 + S2 - 2 (S1 S2)^(1/2))."""
     from scipy import linalg
     diff = mu1 - mu2
-    covmean, _ = linalg.sqrtm(s1.dot(s2), disp=False)
+    try:
+        covmean, _ = linalg.sqrtm(s1.dot(s2), disp=False)
+    except TypeError:                     # scipy >= 1.17 dropped ``disp`` and returns the root only
+        covmean = linalg.sqrtm(s1.dot(s2))
     if not np.isfinite(covmean).all():   # singular product: add a small ridge
         off = np.eye(s1.shape[0]) * eps
         covmean = linalg.sqrtm((s1 + off).dot(s2 + off))

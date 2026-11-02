@@ -1,0 +1,13 @@
+# Extra packages of the diffusion branches (docs/diffusion_6_huong_ke_hoach.md).  Install after requirements.txt:
+#   pip install -r requirements-diffusion.txt
+# Pins = versions the code was written and unit-tested against (2026-11-02); bump deliberately.
+diffusers==0.42.1
+transformers==5.22.1
+peft==0.21.2
+accelerate>=1.2
+safetensors
+lpips
+# D3 (diffusion as a loss): latent LPIPS of Kang et al. 2024 (CC BY-NC, research use)
+elatentlpips
+# D1 / D5 at 512: memory-efficient attention (optional, falls back to SDPA)
+# xformers
