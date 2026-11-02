@@ -290,12 +290,20 @@ ControlNet 512², batch 4, bf16, grad ckpt: ~1.1 s/bước trên 4090; 12k bư�
 ## 8. D6 — Video DiT warp-rồi-diffuse (`feat/diff-d6-video-dit`)
 
 Thiết kế đã có đầy đủ ở `docs/bai_hoc_diffusion_mesh_cho_greg.md` §2 (H1′) và ma trận ablation §6; không lặp lại. Tóm tắt quyết định:
-- Wan2.1-Fun-V1.1-1.3B-InP, khe masked-video = `I_st` (warp mesh hoặc TPSMM — ablation 9), mask = `V·C` (4 kênh/latent frame, **`1 − mask`** theo quy ước DWM `pipeline_wan_fun_inpaint_hand_concat.py:357-366` ✅ — sai dấu là hỏng), kênh mới `N_t`, CCM qua patch-embed mở rộng zero-init (`wan_transformer3d_with_conditions.py:161-167` ✅), LoRA r16–32, loss vùng trên `x0_hat`.
+- Wan2.1-Fun-V1.1-1.3B-InP, khe masked-video = `I_st` (warp mesh hoặc TPSMM — ablation 9), mask = `1[V·C ≥ 0.5]` đóng gói 4 kênh/latent frame **đưa thẳng vào, KHÔNG lấy `1 − mask`** (sửa 2026-11-02: trong DWM, `1 − mask` đổi mask pixel "1 = phải sinh" sang latent "1 = đã biết"; `V·C` của ta vốn đã là "1 = biết", `docs/code_notes_dwm_wan.md` §6.1 — sai dấu là hỏng), kênh mới `N_t`, CCM qua patch-embed mở rộng zero-init (`wan_transformer3d_with_conditions.py:161-167` ✅), LoRA r16–32, loss vùng trên `x0_hat`.
 - Dữ liệu: cache 480² mới (`--size 480`), cửa sổ 49 khung stride {1, 2}, 25 fps giữ nguyên; cache **moments** VAE.
 - Máy: 1× A100/H100 80 GB (vast có A100_SXM4 ~1.3–1.8 USD/h ✅ ngày 2026-11-02). Thử pipeline ở 320² trên 4090 trước (ablation 0 zero-shot + ablation 1).
 - Code: port `WanTransformer3DModelWithConcat` (DWM, Apache-2.0, ~270 dòng) sang 1.3B; dataloader riêng; **spawn agent đọc lại toàn bộ `training/wan/` của DWM khi bắt đầu nhánh** (note hiện có ở `tong_hop_bai_bao_diffusion_mesh.md` §Bài 4).
 - Thứ tự ablation: 0 (zero-shot) → 1 (LoRA) → 2 (mask toàn 1 vs V·C) → 3 (+N_t) → 4 (+CCM) → 9 (TPSMM vs mesh warp). Chỉ chạy 5–8, 10–11 nếu còn ngân sách.
 - Đo trên **cùng tập con 200 clip** của D5.
+
+
+### 8.1 Đã hiện thực (nhánh `feat/diff-d6-video-dit`, theo `docs/code_notes_dwm_wan.md`)
+- Đi đường **diffusers 0.42** (`WanTransformer3DModel`, `AutoencoderKLWan`), không vendor VideoX-Fun: tự chuyển checkpoint gốc 1.3B-InP (`in_channels 36`, nhánh ảnh CLIP) vì bộ nạp single-file nhận nhầm thành t2v-1.3B; nạp `strict`.
+- **VRAM: 320²×49 khung ≈ 6–9 GB, 480² ≈ 9–13 GB (batch 1, cache latent/T5/CLIP)** ⚠️ ⇒ D6 chạy được trên chính 4090; card 80 GB chỉ cần nếu muốn 480² nhanh / batch lớn. Bản đầu: 320² (phóng từ cache 256), 3 000 bước, batch 2.
+- Biến thể giống D5: `ng` (warp mesh + mask V·C + normal + CCM), `ng_ones` (mask toàn 1 = chế độ DWM), `n`, `k` (chế độ i2v: chỉ khung nguồn + normal / skeleton 2D); `base --zero-shot` = ablation 0 (kiểm tra dấu mask và chuyển trọng số).
+- Sửa hai lỗi của DWM khi port: CLIP khung nguồn ở cả train lẫn infer (DWM: train không có, infer toàn 0); `patch_embedding` fp32 và có clip grad.
+- Đánh giá trên **đúng 200 clip × 16 hàng** của D5 (`--index` của D5).
 
 ---
 
