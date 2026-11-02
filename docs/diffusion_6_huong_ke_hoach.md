@@ -155,6 +155,12 @@ Epoch: 15k bước ≈ 6.5 epoch trên 4585×4 cặp; đánh giá val mỗi 2.5k
 - Mask 64² quá thô ở tay (tay ≈ 4–6 token) → mask tay giãn 1 token trước khi pool.
 - Hạ mẫu 512→256 bằng area, không bilinear (giảm aliasing giả làm LPIPS tốt giả).
 
+
+### 3.8 Đã hiện thực (nhánh `feat/diff-d1-refiner`)
+- `greg/diffusion/turbo_refiner.py` (SD-Turbo một bước, skip VAE qua hook, `conv_in` mở rộng zero-init cho latent normal + 4 mặt nạ), `gating.py`, `refiner_data.py`, `refiner_losses.py`; `scripts/22_train_refiner.py` (train), `23_refine_frames.py` (infer + blend), `24_refine_training_free.py` (run 0: SD1.5 + ControlNet-Tile img2img), `25_collect_results.py`.
+- Loss tính ở **256²** sau khi hạ mẫu (area) đầu ra 512 — đúng như lúc đánh giá; mục tiêu 512 không tồn tại trong cache 256 nên không dùng.
+- Thứ tự chạy (`scripts/vast/stages_d1.sh`): smoke 20 bước → baseline GReg trên val → run 0 → run 3 (đầy đủ) → run 1 → run 2; đánh giá mọi blend cho run 3.
+
 ---
 
 ## 4. D2 — Regional Expert bằng diffusion (`feat/diff-d2-diffusion-re`)
@@ -187,6 +193,13 @@ Epoch: 15k bước ≈ 6.5 epoch trên 4585×4 cặp; đánh giá val mỗi 2.5k
 - Prior gradient thưa (phần lớn ≈ 0): chuẩn hoá về [−1, 1] trước khi diffuse, loss MSE thuần; kiểm tra histogram mẫu không bị "xám đều".
 - 8 bước Euler trong vòng train GReg phải chạy dưới `torch.no_grad()` khi RE đóng băng; nếu fine-tune thì chỉ bước cuối có grad (tránh 8× bộ nhớ).
 
+### 4.6 Đã hiện thực (2026-11-02, nhánh `feat/diff-d2-diffusion-re`) — khác kế hoạch ở đâu
+- **Không** viết UNet mới: `FlowExpert` = đúng `RegionalExpert` của GReg (cùng kênh 64-128-256-256, ~14 M/expert) với đầu vào `[x_t, N_crop]`, điều kiện `[style, MLP(t_emb)]` qua modulated conv, đầu ra không sigmoid. → So sánh "cùng mạng, chỉ đổi mục tiêu hồi quy → flow matching", sạch hơn.
+- Nhiễu `fixed` = **một** tensor nhiễu (seed 0) cho mọi mẫu/khung (không theo `hash(key)`, vì `GReg.forward` không biết clip); `random` là ablation 3.
+- Giai đoạn A (`scripts/26_train_region_diffusion.py`): EMA 0.999, 30k bước batch 32 cặp (96 crop), so trên **cùng crop val** với RE hồi quy của run5 (`--regression-checkpoint`): `diff_l1`, `diff_mean_l1` (trung bình 8 mẫu), `diff_std` (độ đa mode), từng vùng.
+- Giai đoạn B: `configs/sweeps/d2_diffusion_re.yaml` (`base` = run5 `sweep_clean/ref` đánh giá lại, `d2_fixed`, `d2_random`); `06_train_greg.py` nạp `model.rpg.checkpoint` và đóng băng RE + style encoder.
+- Ablation 4–5 (mục tiêu rgb, fine-tune end-to-end) chưa cấu hình; chỉ làm nếu `d2_fixed` thắng.
+
 ---
 
 ## 5. D3 — Diffusion làm loss huấn luyện (`feat/diff-d3-diffusion-loss`)
@@ -213,6 +226,10 @@ Không có diffusion lúc infer (tốc độ = GReg). Mô hình diffusion đóng
 
 Đọc: `hand_lpips`, `lowfreq_drift` (critic latent có thể kéo trôi màu), PSNR (kỳ vọng không đổi).
 
+### 5.4 Đã hiện thực (nhánh `feat/diff-d3-diffusion-loss`)
+- API thật của gói (đọc mã nguồn `elatentlpips`): `ELatentLPIPS(encoder="sd15", augment="bg")`, `forward(z0, z1, normalize=True, add_l1_loss=True)`; latent **chưa nhân** hệ số (gói tự nhân 0.18215). Trọng số latent-VGG tải ~1.1 GB lần đầu. Kiểm tra cục bộ: `elpips(a, a) = 0` ✅.
+- `GRegLoss`: khoá `elpips`, `elpips_hand` (crop tay 64² → 256² → latent 32², chỉ tay nhìn thấy). Sweep `configs/sweeps/d3_diffusion_loss.yaml`: `base`, `elp1`, `elp1_hand`, `elp1_noadv`. DIFT chưa viết (chỉ khi 3 run này không cải thiện `hand_lpips`).
+
 ---
 
 ## 6. D4 — Tăng cường dữ liệu bằng diffusion, nhất quán theo clip (`feat/diff-d4-augment`)
@@ -226,6 +243,12 @@ Pose-guided cần **nguồn và đích cùng ngoại hình** → mọi augmentat
 ### 6.2 Hiện thực
 - `scripts/22_make_backgrounds.py`: 500 nền SD1.5 (1 h). `greg/data/augment.py`: `ClipConsistentAugment` (seed theo `(epoch, key)`), bật bằng `data.augment: {background_p: 0.3, color_p: 0.5}`. Matting mask cache: `matte/<key>/<row>.png` (RVM, ~1 h cho 430k khung ⚠️).
 - Thí nghiệm: base vs base+aug, 15 epoch; đo **cross-person** (`08_eval_cross_person.py`) là chính, reconstruction là phụ (kỳ vọng ≈).
+
+### 6.3 Đã hiện thực (nhánh `feat/diff-d4-augment`) — thay đổi so với 6.2
+- **Phát hiện lỗi trong code GReg (ảnh hưởng cả run5):** `PairDataset.set_epoch()` chỉ đổi bản sao ở tiến trình chính; DataLoader dùng `persistent_workers=True` nên worker giữ epoch 0 → **mọi epoch dùng lại đúng 4 585 cặp (nguồn, đích)**, không phải cặp mới mỗi epoch như docstring nói. Đã kiểm chứng bằng test (`tests/test_d4_augment.py::test_shared_epoch_reaches_persistent_workers`). Sửa có tuỳ chọn: `data.fresh_pairs_per_epoch: true` (epoch đặt trong bộ nhớ chia sẻ). **Mặc định tắt** để baseline vẫn tái lập được; run `fresh` trong sweep D4 đo riêng tác dụng của bản sửa.
+- Matting: **không** dùng RVM qua `torch.hub` (chạy mã tải từ GitHub); dùng DeepLabV3-ResNet101 của torchvision (lớp `person`) hợp với mặt nạ SMPL-X giãn 2 px, làm mềm 3×3 (`scripts/28_matte_cache.py`, `--check` đo độ phủ thân SMPL-X).
+- Nền: 600 ảnh SD1.5 (`scripts/27_make_backgrounds.py`): 0–499 cho train, **500–599 giữ lại**.
+- Đánh giá tổng quát hoá: `08_eval_cross_person.py` **không có ground truth** (chỉ xuất khung), nên thay bằng `scripts/29_eval_unseen_backgrounds.py`: tái tạo trên clip val được ghép vào nền **chưa thấy** (cùng nền cho nguồn và đích), đủ mọi chỉ số. Sweep: `base` / `fresh` / `aug` (`configs/sweeps/d4_augment.yaml`).
 
 ---
 
