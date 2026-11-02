@@ -109,8 +109,9 @@ def main():
 
     # ---------------------------------------------------------------- data
     use_temp = float(lc.get("weights", {}).get("temp", 0)) > 0 and bool(d.get("pairs", True))
+    idx_train, idx_val = read_index(d["export_train"]), read_index(d["export_val"])
     train_keys = read_split(Path(d["cache"]) / "splits" / f"{d.get('train_split', 'train_fit')}.txt")
-    train_keys = [k for k in train_keys if k in read_index(d["export_train"])]
+    train_keys = [k for k in train_keys if k in idx_train]
     cache_tr = HamNoSysCache(d["cache"], train_keys)
     if use_temp:
         cache_tr.keep_keys_with_mesh(what="refiner train")
@@ -119,7 +120,7 @@ def main():
                         num_workers=int(tr.get("num_workers", 4)), collate_fn=collate_keep_strings,
                         pin_memory=True, persistent_workers=int(tr.get("num_workers", 4)) > 0)
     val_keys = pick_keys([k for k in read_split(Path(d["cache"]) / "splits" / f"{d.get('val_split', 'val')}.txt")
-                          if k in read_index(d["export_val"])], d.get("val_clips", 40), seed=0)
+                          if k in idx_val], d.get("val_clips", 40), seed=0)
     vds = RefinerDataset(d["export_val"], HamNoSysCache(d["cache"], val_keys), pairs=False,
                          max_items_per_clip=int(d.get("val_items_per_clip", 4)))
     vloader = DataLoader(vds, batch_size=8, num_workers=2, collate_fn=collate_keep_strings)
