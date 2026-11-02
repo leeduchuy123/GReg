@@ -1,0 +1,26 @@
+# D6: Wan2.1-Fun-V1.1-1.3B-InP + LoRA + zero-init condition channels (docs/code_notes_dwm_wan.md Sec. 7)
+seed: 0
+output_dir: outputs/d6/ng
+
+data:
+  cache_dir: outputs/d6/cache          # text.pt + train/ + test/ windows (scripts/32_cache_wan_windows.py)
+  train_subdir: train
+
+model:
+  checkpoint_dir: /workspace/hf/wan_fun_inp_13b   # snapshot of alibaba-pai/Wan2.1-Fun-V1.1-1.3B-InP (transformer only)
+  variant: ng                          # ng | ng_ones | n | k | base
+  lora_rank: 32
+  shift: 5.0
+  gradient_checkpointing: true
+
+loss:
+  w_region: 9.0                        # hands + face latent cells x10
+
+train:
+  steps: 3000
+  batch_size: 2
+  lr: 1.0e-4
+  warmup: 100
+  num_workers: 4
+  log_every: 20
+  save_every: 500
