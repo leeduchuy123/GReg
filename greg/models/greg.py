@@ -134,9 +134,21 @@ class GReg(nn.Module):
 
         self.style_encoder = StyleEncoder(3, style_dim, base=int(m.get("style_base", 32)))
         rpg = m.get("rpg", {})
-        self.rpg = RegionalPriorGenerator(style_dim, self.region_size, out_channels=1,
-                                          channels=tuple(rpg.get("channels", (64, 128, 256, 256))),
-                                          share_hand_expert=bool(rpg.get("share_hand_expert", True)))
+        self.rpg_type = str(rpg.get("type", "regression"))
+        if self.rpg_type == "regression":
+            self.rpg = RegionalPriorGenerator(style_dim, self.region_size, out_channels=1,
+                                              channels=tuple(rpg.get("channels", (64, 128, 256, 256))),
+                                              share_hand_expert=bool(rpg.get("share_hand_expert", True)))
+        elif self.rpg_type == "diffusion":   # D2: flow-matching experts, pretrained by scripts/26_train_region_diffusion.py
+            from greg.diffusion.region_diffusion import DiffusionRegionalPriorGenerator
+            self.rpg = DiffusionRegionalPriorGenerator(style_dim, self.region_size,
+                                                       channels=tuple(rpg.get("channels", (64, 128, 256, 256))),
+                                                       share_hand_expert=bool(rpg.get("share_hand_expert", True)),
+                                                       steps=int(rpg.get("steps", 8)),
+                                                       noise_mode=str(rpg.get("noise_mode", "fixed")),
+                                                       noise_seed=int(rpg.get("noise_seed", 0)))
+        else:
+            raise ValueError(f"model.rpg.type must be regression or diffusion, got {self.rpg_type!r}")
         gr = m.get("gr", {})
         levels = tuple(int(x) for x in gr.get("grm_levels", (32, 64, 128)))
         self.gradient_encoder = GradientEncoder(NUM_REGIONS, base=int(gr.get("base", 32)),
@@ -154,6 +166,19 @@ class GReg(nn.Module):
             zero_init_grm=bool(gr.get("zero_init_out", True)), grm_attn_bf16=bool(gr.get("attn_bf16", True)),
             grm_qk_norm=bool(gr.get("qk_norm", False)))
         self.flow_frozen = False
+
+    # ----------------------------------------------------------------- D2: pretrained diffusion RE
+    def load_pretrained_rpg(self, path: str, freeze: bool = True) -> None:
+        """Load the experts + style encoder trained by scripts/26_train_region_diffusion.py; optionally freeze them
+        (the paper trains the RE separately; GReg then learns to use its priors)."""
+        from greg.utils.checkpoint import load_checkpoint, load_module_state
+        ck = load_checkpoint(path)
+        load_module_state(self.rpg, ck["rpg"])
+        load_module_state(self.style_encoder, ck["style_encoder"])
+        if freeze:
+            for p in list(self.rpg.parameters()) + list(self.style_encoder.parameters()):
+                p.requires_grad_(False)
+        print(f"loaded pretrained {self.rpg_type} RE from {path} (step {ck.get('step')}, frozen={freeze})")
 
     # ----------------------------------------------------------------- flow control
     def freeze_flow(self):

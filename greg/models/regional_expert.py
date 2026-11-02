@@ -26,8 +26,9 @@ from greg.models.style import ModulatedConv2d, StyledBlock
 
 class RegionalExpert(nn.Module):
     def __init__(self, in_channels: int = 3, out_channels: int = 1, style_dim: int = 256,
-                 channels=(64, 128, 256, 256)):
+                 channels=(64, 128, 256, 256), out_activation: str = "sigmoid"):
         super().__init__()
+        self.out_activation = out_activation      # "none": raw output (velocity of the diffusion RE, D2)
         self.inc = ModulatedConv2d(in_channels, channels[0], 3, style_dim)
         self.down = nn.ModuleList()
         for i in range(len(channels) - 1):
@@ -50,7 +51,8 @@ class RegionalExpert(nn.Module):
             skips.pop()
             h = F.interpolate(h, scale_factor=2, mode="bilinear", align_corners=False)
             h = blk(torch.cat([h, skip], dim=1), style)
-        return torch.sigmoid(self.outc(h))
+        h = self.outc(h)
+        return torch.sigmoid(h) if self.out_activation == "sigmoid" else h
 
 
 class RegionalPriorGenerator(nn.Module):

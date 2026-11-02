@@ -1,0 +1,19 @@
+# D2 stage B (docs/diffusion_6_huong_ke_hoach.md Sec. 4): GReg with the pretrained flow-matching Regional Experts,
+# run5's config and short schedule, compared with 'base' = run5 sweep_clean/ref re-evaluated with the same metrics.
+#   python scripts/11_sweep.py --sweep configs/sweeps/d2_diffusion_re.yaml --flow-checkpoint FLOW \
+#       --out-root outputs/d2/sweep --cache CACHE --common model.flow.smplx_dir=SMPLX train.num_workers=12 \
+#       model.rpg.checkpoint=outputs/d2/re/last.pth
+base_config: configs/sweep_greg.yaml
+common: [model.gr.qk_norm=true, loss.weights.regional_perceptual=3]
+eval:
+  split: val
+  max_clips: 100
+  max_rows: 16
+  batch_size: 16
+  lpips: true
+  eval_region_size: 64
+rank_metrics: [l1, lpips, hand_l1, hand_lpips, "hand_l1@large", region_l1]
+runs:
+  base: []                                                         # re-used run5 sweep_clean/ref (no training)
+  d2_fixed: [model.rpg.type=diffusion, model.rpg.freeze=true, model.rpg.noise_mode=fixed]
+  d2_random: [model.rpg.type=diffusion, model.rpg.freeze=true, model.rpg.noise_mode=random]
