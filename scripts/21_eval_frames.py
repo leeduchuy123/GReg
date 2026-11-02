@@ -40,6 +40,8 @@ def main():
     p.add_argument("--max-rows", type=int, default=None)
     p.add_argument("--uniform-rows", action="store_true")
     p.add_argument("--all-rows", action="store_true", help="ignore index.json, score every valid row")
+    p.add_argument("--index", default=None, help="index.json deciding the rows (default: <frames>/index.json); "
+                                                  "score a baseline on exactly the rows of another run")
     p.add_argument("--image-size", type=int, default=256)
     p.add_argument("--eval-region-size", type=int, default=64)
     p.add_argument("--batch-size", type=int, default=16)
@@ -57,7 +59,7 @@ def main():
     else:
         keys = pick_keys(read_split(Path(args.cache) / "splits" / f"{args.split}.txt"), args.max_clips, args.subset_seed)
     items_filter = None
-    index_path = frames / "index.json"
+    index_path = Path(args.index) if args.index else frames / "index.json"
     if index_path.exists() and not args.all_rows and args.max_rows is None:
         idx = json.loads(index_path.read_text(encoding="utf-8"))["clips"]
         keys = [k for k in keys if k in idx]

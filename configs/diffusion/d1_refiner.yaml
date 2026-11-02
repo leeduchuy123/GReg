@@ -1,0 +1,53 @@
+# D1: one-step geometry-gated refiner on GReg run5 outputs (docs/diffusion_6_huong_ke_hoach.md Sec. 3).
+seed: 0
+device: auto
+output_dir: outputs/d1/full
+
+data:
+  cache: data/hamnosys_cache
+  export_train: outputs/export/run5_epoch_040/train     # GReg epoch_040 on train clips (test-like errors)
+  export_val: outputs/export/run5_epoch_100/val
+  train_split: train_fit                                # val clips are held out from refiner training too
+  val_split: val
+  val_clips: 40
+  val_items_per_clip: 4
+  pairs: true                                           # consecutive (t-1, t) rows -> temporal loss
+  smplx_dir: models_smplx_v1_1/models
+
+model:
+  pretrained: stabilityai/sd-turbo
+  work_size: 512              # SD-Turbo is a 512 model; pix2pix-turbo collapsed at 256 (issue #93)
+  cond_normal: true           # VAE latent of the target normal map as extra UNet input channels
+  num_masks: 4                # [V*C, face, lhand, rhand] pooled to the latent grid
+  lora_rank_unet: 8
+  lora_rank_vae: 4
+  gradient_checkpointing: true
+
+gate:                         # which pixels the refiner may change (greg/diffusion/gating.py)
+  dilate_px: 6
+  include_face: true
+  include_disocc: true
+  blend: soft                 # none | hard | soft | freq
+  feather_px: 4
+
+loss:
+  weights: {l2: 1.0, lpips: 5.0, hand: 1.0, temp: 0.5}
+  w_hand: 9.0                 # SignRefine Eq. 4: hands / face x10
+  w_face: 9.0
+  w_disocc: 1.0
+  hand_crop: 64
+  hand_up: 128
+
+train:
+  steps: 15000
+  batch_pairs: 2              # 2 pairs = 4 frames per micro-batch
+  grad_accum: 2
+  lr: 2.0e-5
+  warmup: 200
+  weight_decay: 0.01
+  grad_clip: 1.0
+  amp_dtype: bf16
+  num_workers: 8
+  log_every: 50
+  val_every: 1000
+  save_every: 1000
