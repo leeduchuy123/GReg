@@ -126,7 +126,7 @@ def evaluate_reconstruction(model, cache_root: str | Path, keys: Sequence[str], 
                             on_batch: Optional[Callable[[dict, torch.Tensor, torch.Tensor], None]] = None,
                             smplx_dir: Optional[str] = None, motion_bins: Sequence[float] = MOTION_BINS,
                             mask_dilate_px: int = 3, items_filter: Optional[Callable[[str, int, int], bool]] = None,
-                            hand_crop_size: int = 64, lowfreq_sigma: float = 8.0
+                            hand_crop_size: int = 64, lowfreq_sigma: float = 8.0, item_augment=None
                             ) -> Tuple[List[dict], Dict[str, float]]:
     """-> (per-frame rows, summary).  ``on_batch(batch, pred, target)`` lets callers save frames."""
     was_training = model.training
@@ -139,6 +139,8 @@ def evaluate_reconstruction(model, cache_root: str | Path, keys: Sequence[str], 
     with_parts = (cache.root / "parts").is_dir()        # every preprocessed cache has it; tiny test caches may not
     ds = SequenceDataset(cache, source_row=source_row, max_rows=max_rows, uniform_rows=uniform_rows,
                          with_parts=with_parts, with_mesh=with_mesh)
+    if item_augment is not None:
+        ds.augment = item_augment
     if items_filter is not None:
         ds.items = [it for it in ds.items if items_filter(*it)]
         if not ds.items:

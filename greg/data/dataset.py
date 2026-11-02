@@ -229,7 +229,7 @@ class PairDataset(Dataset):
 
     def __init__(self, cache: HamNoSysCache, pairs_per_clip: int = 1, seed: int = 0,
                  with_parts: bool = False, min_gap: int = 0, with_mesh: bool = False,
-                 source_first_prob: float = 0.0):
+                 source_first_prob: float = 0.0, shared_epoch: bool = False):
         self.cache = cache
         self.pairs_per_clip = max(1, int(pairs_per_clip))
         self.seed = int(seed)
@@ -239,9 +239,22 @@ class PairDataset(Dataset):
         self.min_gap = max(0, int(min_gap))
         self.keys = [k for k in cache.keys if len(cache.valid_rows(k)) >= 2]
         self.epoch = 0
+        # Known issue (found 2026-11-02): with persistent DataLoader workers, ``set_epoch`` only changes the copy in
+        # the main process, so the workers keep epoch 0 and every epoch re-uses the same pairs.  ``shared_epoch``
+        # (``data.fresh_pairs_per_epoch``) puts the epoch in shared memory so the workers see it.  Off by default:
+        # run5 and every baseline were trained with the fixed pairs.
+        self._shared = None
+        if shared_epoch:
+            import multiprocessing as mp
+            self._shared = mp.Value("i", 0)
 
     def set_epoch(self, epoch: int) -> None:
         self.epoch = int(epoch)
+        if self._shared is not None:
+            self._shared.value = int(epoch)
+
+    def current_epoch(self) -> int:
+        return int(self._shared.value) if self._shared is not None else self.epoch
 
     def __len__(self) -> int:
         return len(self.keys) * self.pairs_per_clip
@@ -262,9 +275,13 @@ class PairDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         key = self.keys[index % len(self.keys)]
-        rng = random.Random((self.seed * 1_000_003 + self.epoch) * 7_919 + index)
+        epoch = self.current_epoch()
+        rng = random.Random((self.seed * 1_000_003 + epoch) * 7_919 + index)
         s, t = self._draw(key, rng)
-        return _pair_item(self.cache, key, s, t, self.with_parts, self.with_mesh)
+        item = _pair_item(self.cache, key, s, t, self.with_parts, self.with_mesh)
+        if getattr(self, "augment", None) is not None:      # D4: clip-consistent appearance augmentation
+            item = self.augment(item, key, epoch)
+        return item
 
 
 class SequenceDataset(Dataset):
@@ -300,7 +317,10 @@ class SequenceDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         key, s, t = self.items[index]
-        return _pair_item(self.cache, key, s, t, self.with_parts, self.with_mesh)
+        item = _pair_item(self.cache, key, s, t, self.with_parts, self.with_mesh)
+        if getattr(self, "augment", None) is not None:      # D4: e.g. unseen backgrounds at evaluation
+            item = self.augment(item, key, 0)
+        return item
 
 
 def collate_keep_strings(batch: List[dict]) -> dict:

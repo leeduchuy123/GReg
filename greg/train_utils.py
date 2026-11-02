@@ -24,7 +24,13 @@ def build_pair_loader(cfg: dict, split: str = "train", with_parts: bool = False,
         cache.keep_keys_with_mesh(what=f"{split} loader")
     ds = PairDataset(cache, pairs_per_clip=int(data.get("pairs_per_clip", 1)), seed=seed,
                      with_parts=with_parts, min_gap=int(data.get("min_gap", 0)), with_mesh=with_mesh,
-                     source_first_prob=float(data.get("source_first_prob", 0.0)))
+                     source_first_prob=float(data.get("source_first_prob", 0.0)),
+                     shared_epoch=bool(data.get("fresh_pairs_per_epoch", False)))
+    aug = data.get("augment", {}) or {}
+    if split.startswith("train") and (float(aug.get("background_p", 0)) > 0 or float(aug.get("color_p", 0)) > 0):
+        from greg.data.augment import ClipConsistentAugment   # D4
+        ds.augment = ClipConsistentAugment(data["cache"], aug.get("background_dir"), float(aug.get("background_p", 0)),
+                                           float(aug.get("color_p", 0)), seed=seed)
     train = cfg["train"]
     return DataLoader(ds, batch_size=int(train["batch_size"]), shuffle=(split == "train"),
                       num_workers=int(train.get("num_workers", 2)), drop_last=(split == "train"),

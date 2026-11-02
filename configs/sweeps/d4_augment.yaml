@@ -1,0 +1,18 @@
+# D4 (docs/diffusion_6_huong_ke_hoach.md Sec. 6): clip-consistent appearance augmentation with SD backgrounds.
+#   python scripts/11_sweep.py --sweep configs/sweeps/d4_augment.yaml --flow-checkpoint FLOW --out-root outputs/d4/sweep \
+#       --cache CACHE --common model.flow.smplx_dir=SMPLX train.num_workers=12 data.augment.background_dir=BG
+# 'fresh' isolates the fix of the fixed-pairs issue (PairDataset.shared_epoch) from the augmentation itself.
+base_config: configs/sweep_greg.yaml
+common: [model.gr.qk_norm=true, loss.weights.regional_perceptual=3]
+eval:
+  split: val
+  max_clips: 100
+  max_rows: 16
+  batch_size: 16
+  lpips: true
+  eval_region_size: 64
+rank_metrics: [l1, lpips, hand_l1, hand_lpips, "hand_l1@large"]
+runs:
+  base: []                                                         # re-used run5 sweep_clean/ref
+  fresh: [data.fresh_pairs_per_epoch=true]                         # new random pairs every epoch (bug fix only)
+  aug: [data.fresh_pairs_per_epoch=true, data.augment.background_p=0.3, data.augment.color_p=0.5]
