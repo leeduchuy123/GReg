@@ -1,0 +1,19 @@
+# D3 (docs/diffusion_6_huong_ke_hoach.md Sec. 5): frozen SD-1.5 latent space as a training loss of GReg,
+# run5's config and short schedule; 'base' = run5 sweep_clean/ref re-evaluated with the same metrics.
+#   python scripts/11_sweep.py --sweep configs/sweeps/d3_diffusion_loss.yaml --flow-checkpoint FLOW \
+#       --out-root outputs/d3/sweep --cache CACHE --common model.flow.smplx_dir=SMPLX train.num_workers=12
+base_config: configs/sweep_greg.yaml
+common: [model.gr.qk_norm=true, loss.weights.regional_perceptual=3]
+eval:
+  split: val
+  max_clips: 100
+  max_rows: 16
+  batch_size: 16
+  lpips: true
+  eval_region_size: 64
+rank_metrics: [l1, lpips, hand_l1, hand_lpips, "hand_l1@large", lowfreq_drift]
+runs:
+  base: []                                                       # re-used run5 sweep_clean/ref (no training)
+  elp1: [loss.weights.elpips=1.0]                                # + whole-frame E-LatentLPIPS
+  elp1_hand: [loss.weights.elpips=1.0, loss.weights.elpips_hand=1.0]   # + the same on the hand crops
+  elp1_noadv: [loss.weights.elpips=1.0, loss.weights.adv=0]      # the diffusion critic instead of the 3 PatchGANs

@@ -68,7 +68,9 @@ class GRegLoss:
                  struct_bg_weight: float = 1.0, masked_l1_dilate_px: int = 4):
         self.perceptual = perceptual
         self.w = {"perceptual": 10.0, "regional_perceptual": 10.0, "struct": 10.0, "adv": 1.0,
-                  "occ": 0.0, "masked_l1": 0.0, "flow_tv": 0.0, "flow_mag": 0.0}
+                  "occ": 0.0, "masked_l1": 0.0, "flow_tv": 0.0, "flow_mag": 0.0, "elpips": 0.0, "elpips_hand": 0.0}
+        self.elpips = None              # D3: greg.diffusion.latent_lpips.ELatentLPIPSLoss, set by the training script
+        self.elpips_hand_size = 256     # hand crops are resized to this before the VAE (latent 32^2)
         self.w.update({k: float(v) for k, v in (weights or {}).items()})
         self.gan_type = gan_type
         self.region_size = region_size
@@ -159,6 +161,14 @@ class GRegLoss:
             fake_logits = discriminators(fake["crops"], fake["grads"])
             losses["adv"] = gan_loss_g(fake_logits, self.gan_type)
 
+        if self.elpips is not None and self.w["elpips"] > 0:      # D3: frozen SD-latent perceptual loss, whole frame
+            losses["elpips"] = self.elpips(out["output"], image_target)
+        if self.elpips is not None and self.w["elpips_hand"] > 0:  # D3: same on the two hand crops (visible hands)
+            s = self.elpips_hand_size
+            hf = resize_patches(crop_regions(out["output"], boxes, self.region_size)[:, 1:], s).flatten(0, 1)
+            ht = resize_patches(crop_regions(image_target, boxes, self.region_size)[:, 1:], s).flatten(0, 1)
+            keep = rw[:, 1:].flatten() > 0
+            losses["elpips_hand"] = self.elpips(hf[keep], ht[keep]) if bool(keep.any()) else out["output"].sum() * 0
         if self.w["occ"] > 0 and "occlusion_geo" in out and out["occlusion"] is not out["occlusion_geo"]:
             losses["occ"] = (out["occlusion"] - out["occlusion_geo"]).abs().mean()
         if self.w["masked_l1"] > 0 and "parts_target" in out:

@@ -131,6 +131,14 @@ def main():
                          masked_l1_dilate_px=int(lc.get("masked_l1_dilate_px", 4)))
     if getattr(model, "ablation_no_rpg", False):
         criterion.w["struct"] = 0.0   # no prior -> no prior structure loss
+    if criterion.w["elpips"] > 0 or criterion.w["elpips_hand"] > 0:   # D3: frozen SD-latent perceptual loss
+        from greg.diffusion.latent_lpips import ELatentLPIPSLoss
+        el = lc.get("elpips", {}) or {}
+        criterion.elpips = ELatentLPIPSLoss(el.get("vae", "stable-diffusion-v1-5/stable-diffusion-v1-5"),
+                                            encoder=el.get("encoder", "sd15"), augment=el.get("augment", "bg"),
+                                            scale=float(el.get("scale", 1.0))).to(device)
+        criterion.elpips_hand_size = int(el.get("hand_size", 256))
+        print(f"D3: E-LatentLPIPS loss weights elpips={criterion.w['elpips']} elpips_hand={criterion.w['elpips_hand']}")
     scaler = torch.amp.GradScaler("cuda", enabled=bool(tr.get("amp", False)) and device.type == "cuda")
 
     # B1 needs the target part map: from the mesh (A1) or from parts/*.png (TPSMM runs)
@@ -150,7 +158,7 @@ def main():
         print(f"resumed from {args.resume} at epoch {start_epoch}")
     logger = CSVLogger(out_dir / "logs" / "loss.csv",
                        ["lr", "total", "perceptual", "regional_perceptual", "struct", "adv", "occ", "masked_l1",
-                        "flow_tv", "flow_mag",
+                        "flow_tv", "flow_mag", "elpips", "elpips_hand",
                         "d_total", "g_gradnorm", "d_gradnorm", "amp_scale", "skipped", "sec_per_step", "vram_gb"])
     guard = NonFiniteGuard([model, disc])
 
