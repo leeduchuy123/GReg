@@ -107,7 +107,10 @@ def main():
         raise SystemExit("--flow-checkpoint is required (or --resume)")
     if bool(cfg["model"].get("freeze_flow", True)):
         model.freeze_flow()
-    rpg_ck = (cfg["model"].get("rpg", {}) or {}).get("checkpoint")
+    rpg_cfg = cfg["model"].get("rpg", {}) or {}
+    # only the diffusion Regional Experts are pretrained: a sweep passes model.rpg.checkpoint to every run (also
+    # the regression 'base'), where freezing the RE changed the optimizer groups of the resumed checkpoint
+    rpg_ck = rpg_cfg.get("checkpoint") if rpg_cfg.get("type", "regression") == "diffusion" else None
     if rpg_ck and not args.resume:   # D2: pretrained (diffusion) Regional Experts; resuming restores them anyway
         model.load_pretrained_rpg(rpg_ck, freeze=bool(cfg["model"]["rpg"].get("freeze", True)))
     elif rpg_ck and bool(cfg["model"]["rpg"].get("freeze", True)):
