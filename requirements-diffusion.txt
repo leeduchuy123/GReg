@@ -1,6 +1,7 @@
 # Extra packages of the diffusion branches (docs/diffusion_6_huong_ke_hoach.md).  Install after requirements.txt:
 #   pip install -r requirements-diffusion.txt
 # Pins = versions the code was written and unit-tested against (2026-11-02); bump deliberately.
+torch>=2.6           # diffusers 0.42 uses torch.accelerator (the vast image ships 2.5.1: upgrade to 2.7.1+cu126 with matching torchvision/torchaudio)
 diffusers==0.42.1
 transformers==5.22.1
 peft==0.21.2

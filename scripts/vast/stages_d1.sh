@@ -10,7 +10,8 @@ D1=$OUT/d1
 VAL_EXPORT=$EXPORT/run5_epoch_100/val
 TEST_EXPORT=$EXPORT/run5_epoch_100/test
 COMMON="data.cache=$CACHE data.export_train=$EXPORT/run5_epoch_040/train data.export_val=$VAL_EXPORT data.smplx_dir=$SMPLX train.num_workers=$WORKERS"
-D1_STEPS=${D1_STEPS:-15000}
+D1_STEPS=${D1_STEPS:-5000}
+D1_ABL_STEPS=${D1_ABL_STEPS:-3000}
 
 d1_sub() {  # d1_sub <name> <command...>
     local name=d1_$1; shift
@@ -56,9 +57,9 @@ run_d1() {
     d1_sub run0 d1_run0 || return 1
     d1_sub run3_train d1_train run3 || return 1
     d1_sub run3_eval d1_infer_eval run3 soft hard freq none || return 1
-    d1_sub run1_train d1_train run1 model.cond_normal=false model.num_masks=0 loss.weights.temp=0 data.pairs=false || return 1
+    d1_sub run1_train d1_train run1 train.steps=$D1_ABL_STEPS model.cond_normal=false model.num_masks=0 loss.weights.temp=0 data.pairs=false || return 1
     d1_sub run1_eval d1_infer_eval run1 soft || return 1
-    d1_sub run2_train d1_train run2 loss.weights.temp=0 data.pairs=false || return 1
+    d1_sub run2_train d1_train run2 train.steps=$D1_ABL_STEPS loss.weights.temp=0 data.pairs=false || return 1
     d1_sub run2_eval d1_infer_eval run2 soft || return 1
     python scripts/25_collect_results.py --root $D1 --baseline $D1/baseline_greg_val --out $D1/results_val.md || true
 }

@@ -39,9 +39,9 @@ loss:
   hand_up: 128
 
 train:
-  steps: 15000
-  batch_pairs: 2              # 2 pairs = 4 frames per micro-batch
-  grad_accum: 2
+  steps: 5000                 # 5000 x 4 pairs = 40k pairs (~4 h on a 4090)
+  batch_pairs: 1              # 1 pair = 2 frames per micro-batch (2 pairs = 23+ GB at 512: OOM on 24 GB)
+  grad_accum: 4               # effective batch 4 pairs = 8 frames; 2.95 s/step on a 4090, 17.2 GB
   lr: 2.0e-5
   warmup: 200
   weight_decay: 0.01
