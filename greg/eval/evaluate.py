@@ -112,7 +112,9 @@ def build_metric_mesh(model, cache: HamNoSysCache, smplx_dir: Optional[str]):
         return None
     try:
         from greg.geometry.mesh_flow import MeshCorrespondence
-        return MeshCorrespondence(smplx_dir, device=next(model.parameters()).device)
+        # a frame-directory "model" (greg.eval.frame_dir) has buffers but no parameters
+        dev = next(iter(list(model.parameters()) + list(model.buffers()))).device
+        return MeshCorrespondence(smplx_dir, device=dev)
     except Exception as e:   # smplx not installed / model files missing: keep the other metrics
         print(f"arm metrics disabled: {type(e).__name__}: {e}")
         return None
