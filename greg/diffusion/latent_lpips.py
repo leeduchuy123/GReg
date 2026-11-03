@@ -16,6 +16,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def use_reference_style_ops() -> None:
+    """Make the StyleGAN2-ADA ops inside ``elatentlpips`` (augmentation: upfirdn2d, bias_act, filtered_lrelu) use
+    their pure-PyTorch reference path instead of JIT-compiling CUDA plugins, which needs nvcc / CUDA_HOME (absent on
+    the vast image: the first E-LatentLPIPS forward raised OSError).  On 4x32^2 latents the cost is negligible."""
+    import importlib
+    for name in ("upfirdn2d", "bias_act", "filtered_lrelu"):
+        try:
+            mod = importlib.import_module(f"elatentlpips.style_ops.{name}")
+        except ImportError:
+            continue
+        if hasattr(mod, "_init"):
+            mod._init = lambda: False
+
+
 class ELatentLPIPSLoss(nn.Module):
     def __init__(self, vae_id: str = "stable-diffusion-v1-5/stable-diffusion-v1-5", encoder: str = "sd15",
                  augment: str = "bg", scale: float = 1.0, add_l1: bool = True, vae=None, metric=None):
@@ -26,6 +40,7 @@ class ELatentLPIPSLoss(nn.Module):
             vae.decoder = None                        # only the encoder is used
         if metric is None:
             from elatentlpips import ELatentLPIPS
+            use_reference_style_ops()
             metric = ELatentLPIPS(encoder=encoder, augment=augment, verbose=False)
         self.vae, self.metric = vae.eval(), metric.eval()
         for p in list(self.vae.parameters()) + list(self.metric.parameters()):
