@@ -126,3 +126,20 @@ def test_frame_dir_model_scores_exported_rows_only(tmp_path):
     assert summary["mean_lowfreq_drift"] == pytest.approx(10 / 255, abs=1e-6)
     with pytest.raises(FileNotFoundError):
         evaluate_reconstruction(model, cache, ["a"], torch.device("cpu"), batch_size=4)   # row 2 was not exported
+
+
+def test_build_metric_mesh_device_without_parameters(tmp_path, monkeypatch):
+    """Regression (2026-11-03): FrameDirModel has no parameters; the arm / disocc metrics were silently disabled."""
+    import greg.geometry.mesh_flow as mf
+    from greg.eval.evaluate import build_metric_mesh
+    from greg.data.dataset import HamNoSysCache
+    seen = {}
+
+    class _MC:
+        def __init__(self, smplx_dir, device=None):
+            seen["device"] = device
+    monkeypatch.setattr(mf, "MeshCorrespondence", _MC)
+    cache = HamNoSysCache(_fake_cache(tmp_path / "c"), ["a"])
+    monkeypatch.setattr(HamNoSysCache, "has_mesh", lambda self: True)
+    m = build_metric_mesh(FrameDirModel(tmp_path, 32), cache, "smplx")
+    assert isinstance(m, _MC) and str(seen["device"]) == "cpu"
