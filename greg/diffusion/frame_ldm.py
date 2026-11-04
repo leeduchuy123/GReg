@@ -28,6 +28,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# same prompt as the D1 refiner (greg/diffusion/turbo_refiner.py lives on the D1 branch only)
+DEFAULT_PROMPT = "a person signing in sign language, sharp hands and fingers, studio video, uniform lighting"
+
 # --------------------------------------------------------------------------- skeleton condition ("k")
 BODY_BONES = [(12, 15), (12, 16), (12, 17), (16, 18), (18, 20), (17, 19), (19, 21), (9, 12), (9, 13), (9, 14)]
 # SMPL-X hand joints: index (+0..2), middle (+3..5), pinky (+6..8), ring (+9..11), thumb (+12..14); tips in the
@@ -176,7 +179,6 @@ class FrameLDM(nn.Module):
         sched = DDPMScheduler.from_pretrained(base, subfolder="scheduler")
         tok = AutoTokenizer.from_pretrained(base, subfolder="tokenizer")
         te = CLIPTextModel.from_pretrained(base, subfolder="text_encoder")
-        from greg.diffusion.turbo_refiner import DEFAULT_PROMPT
         with torch.no_grad():
             ids = tok(prompt or DEFAULT_PROMPT, max_length=tok.model_max_length, padding="max_length",
                       truncation=True, return_tensors="pt").input_ids
