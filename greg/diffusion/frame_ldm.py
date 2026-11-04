@@ -244,7 +244,8 @@ class FrameLDM(nn.Module):
         a = self.alphas_cumprod.to(z0.device)[t].view(B, 1, 1, 1)
         z_t = a.sqrt() * z0 + (1 - a).sqrt() * noise
         pred = self.eps(z_t, t, cond)
-        self.bank.mode = "off"
+        # the bank stays in "read" mode: with gradient checkpointing the backward pass re-runs these attention
+        # processors, and switching to "off" here made the recomputed K/V lose the reference tokens (shape mismatch)
         err = ((pred.float() - noise.float()) ** 2).mean(1, keepdim=True)
         if region_mask is None:
             return err.mean()
