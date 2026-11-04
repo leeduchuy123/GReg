@@ -164,7 +164,10 @@ def main():
             b = to_dev(batch, device)
             cond = cond_fn(b)
             mask = part_mask(b["target_parts"].long(), (2, 3, 4), 3, soften=False)
-            with torch.autocast("cuda", dtype=amp, enabled=device.type == "cuda"):
+            # cache_enabled=False: training_loss runs the LoRA UNet twice in this region, first under no_grad (reference
+            # write); a cached bf16 copy of the LoRA weights from that pass carries no autograd history, so the grad pass
+            # would reuse it (no LoRA gradient) and checkpoint recomputation saw different tensors (CheckpointError)
+            with torch.autocast("cuda", dtype=amp, enabled=device.type == "cuda", cache_enabled=False):
                 loss = model.training_loss(up(b["target_image"], work), up(b["source_image"], work), cond, mask,
                                            float(cfg.get("loss", {}).get("w_region", 9.0)))
             if not torch.isfinite(loss):
